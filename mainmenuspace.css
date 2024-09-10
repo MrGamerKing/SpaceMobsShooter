@@ -1,0 +1,91 @@
+body, html {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    height: 100%;
+    width: 100%;
+}
+
+#background {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 200%; /* Set to a value to ensure continuous scrolling */
+    height: 100%;
+    background: url('void.png') repeat-x; /* Use the correct background image */
+    background-size: cover;
+    z-index: -1;
+    animation: scrollBackground 40s linear infinite; /* Adjust the duration as needed */
+}
+
+@keyframes scrollBackground {
+    from {
+        transform: translateX(0);
+    }
+    to {
+        transform: translateX(-50%); /* Adjust based on the width of the background */
+    }
+}
+
+#gameCanvas {
+    position: relative;
+    z-index: 1;
+}
+
+#animationContainer {
+    position: relative;
+}
+
+#jumpingImage {
+    width: 500px; /* Adjust size as needed */
+    height: auto;
+    animation: jump 1.5s ease-in-out infinite; /* Adjust duration as needed */
+}
+
+@keyframes jump {
+    0% {
+        transform: translateY(0);
+    }
+    50% {
+        transform: translateY(-25px); /* Adjust height of the jump */
+    }
+    100% {
+        transform: translateY(0);
+    }
+}
+
+.main
+{
+    background-color: rgba(29, 29, 36, 0.5);
+    padding: 20px;
+    border: 3px solid rgb(255, 255, 255);
+    width: 500px;
+    height: 350px;
+}
+
+.about
+{
+    background-color: rgba(29, 29, 36, 0.5);
+    padding: 20px;
+    border: 3px solid rgb(255, 255, 255);
+    width: 500px;
+    height: 550px;
+}
+
+.button {
+    display: inline-block;
+    padding: 15px 30px;
+    font-size: 16px;
+    color: #fff;
+    background-color: #007BFF; /* Primary color */
+    text-align: center;
+    text-decoration: none;
+    border-radius: 5px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    transition: transform 0.3s ease, background-color 0.3s ease;
+}
+
+.button:hover {
+    transform: scale(1.1); /* Increase size on hover */
+    background-color: #0056b3; /* Darker shade on hover */
+}
