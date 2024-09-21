@@ -325,7 +325,7 @@ function animate() {
         enemy.update();
 
         if (checkCollision(player, enemy)) {
-            alert('Crashed!!   --   Score= ' + score);
+            alert('Crashed!!  (CTRL + R) --   Score= ' + score);
             location.reload(); // Restart the game
         }
 
@@ -334,7 +334,7 @@ function animate() {
             lives--;
             updateLives();
             if (lives === 0) {
-                alert('Out of Lives!!   ---   Score= ' + score);
+                alert('Out of Lives!!  (CTRL + R) ---   Score= ' + score);
                 location.reload(); // Restart the game
             }
         }
@@ -345,7 +345,7 @@ function animate() {
         enemyBullet.update();
 
         if (checkCollision(player, enemyBullet)) {
-            alert('Kaboom!!   --   Score= ' + score);
+            alert('Kaboom!!   (CTRL + R) --   Score= ' + score);
             location.reload(); // Restart the game
         }
 
