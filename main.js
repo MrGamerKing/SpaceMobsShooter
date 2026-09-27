@@ -1,31 +1,46 @@
-const { app, BrowserWindow } = require('electron');
+// Desktop build (Electron). The game itself is plain HTML — index.html also runs in any browser.
+const { app, BrowserWindow, shell } = require('electron');
+const path = require('path');
 
 function createWindow() {
-  // Create the browser window.
   const win = new BrowserWindow({
-    width: 800,
-    height: 600,
+    width: 1280,
+    height: 800,
+    minWidth: 420,
+    minHeight: 560,
+    backgroundColor: '#04050d',
+    autoHideMenuBar: true,
+    title: 'Space Mobs Shooter',
+    icon: path.join(__dirname, 'player.png'),
     webPreferences: {
-      nodeIntegration: true
-    }
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
   });
 
-  // Load a local HTML file or a web URL
   win.loadFile('index.html');
-  // Or load a remote URL
-  // win.loadURL('https://example.com');
+
+  // YouTube / Discord links open in the real browser instead of a new game window
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  // F11 toggles fullscreen
+  win.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown' && input.key === 'F11') {
+      win.setFullScreen(!win.isFullScreen());
+      event.preventDefault();
+    }
+  });
 }
 
 app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  if (process.platform !== 'darwin') app.quit();
 });
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-  }
+  if (BrowserWindow.getAllWindows().length === 0) createWindow();
 });

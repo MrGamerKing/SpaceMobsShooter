@@ -1,28 +1,315 @@
 <!DOCTYPE html>
+<html lang="en">
 <head>
-    <title>Space Mobs Shooter</title>
-    <link rel="stylesheet" href="mainmenuspace.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#04050d">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="Space Mobs Shooter — blast Minecraft mobs across the void. Play on PC, mobile or gamepad.">
+  <title>Space Mobs Shooter</title>
+  <link rel="icon" type="image/png" href="player.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Rajdhani:wght@500;600;700&display=swap">
+  <link rel="stylesheet" href="game.css">
 </head>
 <body>
-     <!-- Background -->
-     <div id="background">
-     </div>
-     <center>
-        <br><br><br><br><br>
-        <div id="animationContainer">
-            <img src="spaceshooterlogo.jpg" id="jumpingImage">
+<div id="app">
+  <canvas id="game" aria-label="Game view"></canvas>
+
+  <!-- screen effects -->
+  <div id="fxLow" class="fx fx-low"></div>
+  <div id="fxHurt" class="fx fx-hurt"></div>
+  <div id="fxWhite" class="fx fx-white"></div>
+  <div id="hazard" class="hazard"><i></i><i></i></div>
+
+  <!-- ============================== HUD ============================== -->
+  <div id="hud" class="hud">
+    <div class="hud-tl">
+      <span class="hud-label">SCORE</span>
+      <b id="hudScore" class="hud-score">0</b>
+      <div id="hudCombo" class="combo"><b id="hudMult">x2</b><span class="bar"><i id="hudComboBar"></i></span><small id="hudHits">0 HITS</small></div>
+      <div class="pips-row"><span class="hud-label">WPN</span><span id="hudPips" class="pips"><i></i><i></i><i></i><i></i><i></i></span></div>
+    </div>
+
+    <div class="hud-tc">
+      <div id="hudWave" class="hud-wave">WAVE <b>1</b></div>
+      <div id="bossBar" class="boss-bar">
+        <div id="bossName" class="boss-name">THE WARDEN</div>
+        <div class="boss-track"><i id="bossLag" class="lag"></i><i id="bossFill" class="fill"></i></div>
+      </div>
+    </div>
+
+    <div class="hud-tr">
+      <div id="hudHearts" class="hearts"></div>
+      <button id="btnPause" class="icon-btn hud-btn" aria-label="Pause">
+        <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+      </button>
+    </div>
+
+    <div id="hudPowers" class="powers"></div>
+
+    <div class="dock">
+      <button id="abDash" class="ability dash" aria-label="Dash">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 13l6-6 6 6M6 19l6-6 6 6"/></svg>
+        <kbd>SHIFT</kbd>
+      </button>
+      <button id="abNova" class="ability nova" aria-label="Nova bomb">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 1.5l2.1 6.2 6.3-2.3-3.6 5.6 5.7 3.3-6.5.8.6 6.6L12 16.9l-4.6 4.8.6-6.6-6.5-.8 5.7-3.3-3.6-5.6 6.3 2.3z"/></svg>
+        <kbd>B</kbd>
+      </button>
+    </div>
+    <div id="fps" class="fps"></div>
+  </div>
+
+  <div id="joy" class="joy"><i id="joyKnob"></i></div>
+  <div id="touchDot" class="touch-dot"></div>
+  <div id="hint" class="hint"></div>
+
+  <div id="banner" class="banner"><h3 id="bannerTitle"></h3><div class="stripe"></div><p id="bannerSub"></p></div>
+  <div id="toast" class="toast"></div>
+
+  <!-- ============================== MAIN MENU ============================== -->
+  <section id="scrMenu" class="screen menu-screen">
+    <div class="menu-corner">
+      <button id="btnMute" class="icon-btn" data-act="mute" aria-label="Toggle sound"></button>
+      <button class="icon-btn" data-act="fullscreen" aria-label="Toggle fullscreen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+      </button>
+    </div>
+    <div class="menu">
+      <div class="logo-wrap">
+        <img src="logo.png" alt="Space Mobs Shooter" class="logo">
+        <div class="tagline">DEFEND THE VOID</div>
+      </div>
+      <nav class="menu-buttons">
+        <button class="btn btn-primary" data-act="play" data-autofocus style="--i:0">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l12-7.5z"/></svg>PLAY
+        </button>
+        <button class="btn" data-act="how" style="--i:1">HOW TO PLAY</button>
+        <div class="menu-row" style="--i:2">
+          <button class="btn" data-act="settings">SETTINGS</button>
+          <button class="btn" data-act="about">ABOUT</button>
         </div>
-        <br><br><br><br><br><br>
-        <div class="main" id="main">
-            <br><br><br>
-            <a href="spacegame.html" class="button">START</a>
-            <br><br><br>
-            <a href="AboutSPACE.html" class="button">ABOUT</a>
-            <br><br><br>
-            <a href="spacegame.html" class="button">CLOSE</a>
+        <button id="btnQuit" class="btn btn-ghost hidden" data-act="quit" style="--i:3">QUIT</button>
+      </nav>
+      <div class="menu-stats">
+        <span class="stat-pill">BEST<b id="menuBest">0</b></span>
+        <span class="stat-pill">RUNS<b id="menuRuns">0</b></span>
+        <span class="stat-pill">MOBS<b id="menuKills">0</b></span>
+      </div>
+    </div>
+    <div class="version">v2.0 · REMASTERED</div>
+    <div class="menu-hint">PRESS ENTER TO PLAY</div>
+  </section>
+
+  <!-- ============================== HOW TO PLAY ============================== -->
+  <section id="scrHow" class="screen overlay">
+    <div class="panel">
+      <div class="panel-head">
+        <button class="icon-btn" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <h2>HOW TO PLAY</h2>
+      </div>
+      <div class="tabs" role="tablist">
+        <button role="tab" data-tab="tabControls" aria-selected="true">CONTROLS</button>
+        <button role="tab" data-tab="tabMobs" aria-selected="false">MOBS</button>
+        <button role="tab" data-tab="tabPowers" aria-selected="false">POWER-UPS</button>
+      </div>
+      <div class="panel-body">
+        <div id="tabControls" class="tab-page active">
+          <div class="ctrl-group">
+            <h4>⌨ KEYBOARD &amp; MOUSE</h4>
+            <div class="ctrl-list">
+              <span>Fly</span><span><kbd class="k">W</kbd><kbd class="k">A</kbd><kbd class="k">S</kbd><kbd class="k">D</kbd> / <kbd class="k">ARROWS</kbd></span>
+              <span>Fly with mouse</span><span><kbd class="k">HOLD LEFT CLICK</kbd></span>
+              <span>Shoot (auto-fire is on)</span><span><kbd class="k">SPACE</kbd> <kbd class="k">F</kbd> toggle</span>
+              <span>Dash (invincible)</span><span><kbd class="k">SHIFT</kbd> / <kbd class="k">K</kbd></span>
+              <span>Nova bomb</span><span><kbd class="k">B</kbd> / <kbd class="k">RIGHT CLICK</kbd></span>
+              <span>Pause · Mute</span><span><kbd class="k">ESC</kbd> <kbd class="k">M</kbd></span>
+            </div>
+          </div>
+          <div class="ctrl-group">
+            <h4>📱 TOUCH</h4>
+            <div class="ctrl-list">
+              <span>Drag anywhere — the ship mirrors your finger, never hides under it</span><span><kbd class="k">DRAG</kbd></span>
+              <span>Quick swipe &amp; release to dash that way</span><span><kbd class="k">FLICK</kbd></span>
+              <span>Nova bomb</span><span><kbd class="k">2-FINGER TAP</kbd></span>
+              <span>Prefer a stick? Switch to Joystick in Settings</span><span><kbd class="k">SETTINGS</kbd></span>
+            </div>
+          </div>
+          <div class="ctrl-group">
+            <h4>🎮 GAMEPAD</h4>
+            <div class="ctrl-list">
+              <span>Fly</span><span><kbd class="k">L-STICK</kbd> / <kbd class="k">D-PAD</kbd></span>
+              <span>Shoot · Dash</span><span><kbd class="k">A</kbd>/<kbd class="k">RT</kbd> · <kbd class="k">B</kbd>/<kbd class="k">RB</kbd></span>
+              <span>Nova · Pause</span><span><kbd class="k">X</kbd>/<kbd class="k">Y</kbd> · <kbd class="k">START</kbd></span>
+            </div>
+          </div>
         </div>
-    </center>
-     <!-- Game Canvas -->
-     <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+        <div id="tabMobs" class="tab-page">
+          <div class="cards">
+            <div class="card"><img src="zombie.png" alt=""><div><b>ZOMBIE</b><p>Slow and tanky. Takes a few hits.</p></div></div>
+            <div class="card"><img src="skeleton.png" alt=""><div><b>SKELETON</b><p>Stops, strafes and fires aimed arrows. It glows before every shot.</p></div></div>
+            <div class="card"><img src="creeper.png" alt=""><div><b>CREEPER</b><p>Hunts you and explodes. Drops TNT — shoot it to blow up nearby mobs.</p></div></div>
+            <div class="card"><img src="vex.png" alt=""><div><b>VEX</b><p>Fast swarms that shake, then dive straight at you.</p></div></div>
+            <div class="card"><img src="evoker.png" alt=""><div><b>EVOKER</b><p>Summons Vex and casts magic orbs. Kill it first!</p></div></div>
+            <div class="card"><img src="warden.png" alt=""><div><b>WARDEN<span class="tag">BOSS</span></b><p>Every 5th wave. Three phases — dodge the red zone before its Sonic Boom.</p></div></div>
+          </div>
+        </div>
+
+        <div id="tabPowers" class="tab-page">
+          <div class="cards">
+            <div class="card"><img src="newbullet.png" alt=""><div><b>WEAPON STAR</b><p>Upgrades your gun up to level 5 with homing missiles.</p></div></div>
+            <div class="card"><img src="booster.png" alt=""><div><b>OVERDRIVE</b><p>Double fire rate, bigger piercing shots, extra speed.</p></div></div>
+            <div class="card"><div class="svg-ic" id="howShield"></div><div><b>SHIELD</b><p>Blocks everything for 10s. Ram mobs to crush them.</p></div></div>
+            <div class="card"><div class="svg-ic" id="howMagnet"></div><div><b>MAGNET</b><p>Pulls every pickup on screen straight to you.</p></div></div>
+            <div class="card"><img src="scoreinc2.png" alt=""><div><b>SCORE POTION</b><p>Doubles all points for 12 seconds.</p></div></div>
+            <div class="card"><img src="scoreinc.png" alt=""><div><b>EMERALD ORB</b><p>+250 points instantly.</p></div></div>
+            <div class="card"><img src="heart.png" alt=""><div><b>HEART</b><p>Repairs 1 hull. At full health it raises your max hull (up to 8).</p></div></div>
+          </div>
+          <ul class="tips">
+            <li><b>COMBO</b> — chain kills quickly to raise your multiplier up to x8. Getting hit or letting a mob escape resets it.</li>
+            <li><b>GRAZE</b> — skim bullets without touching them for bonus points and Nova charge.</li>
+            <li><b>NOVA</b> — a screen-wide shockwave that wipes bullets and hurts every mob. Charges from kills and grazes.</li>
+            <li><b>PERFECT</b> — clear a wave without taking damage for double bonus and a free power-up.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== SETTINGS ============================== -->
+  <section id="scrSettings" class="screen overlay">
+    <div class="panel">
+      <div class="panel-head">
+        <button class="icon-btn" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <h2>SETTINGS</h2>
+      </div>
+      <div class="panel-body">
+        <div class="set-group">
+          <h4>AUDIO</h4>
+          <div class="row"><span class="lbl">Music</span><span class="row-ctl"><input type="range" min="0" max="1" step="0.05" data-set="music" aria-label="Music volume"><output data-out="music"></output></span></div>
+          <div class="row"><span class="lbl">Sound effects</span><span class="row-ctl"><input type="range" min="0" max="1" step="0.05" data-set="sfx" aria-label="Sound effects volume"><output data-out="sfx"></output></span></div>
+        </div>
+        <div class="set-group">
+          <h4>GAMEPLAY</h4>
+          <div class="row"><span class="lbl">Auto-fire<small>Shoot automatically — focus on dodging</small></span><button class="toggle" role="switch" data-set="autoFire" aria-label="Auto-fire"></button></div>
+          <div class="row"><span class="lbl">Screen shake</span><button class="toggle" role="switch" data-set="shake" aria-label="Screen shake"></button></div>
+          <div class="row"><span class="lbl">Vibration<small>Phones and gamepads</small></span><button class="toggle" role="switch" data-set="vibration" aria-label="Vibration"></button></div>
+        </div>
+        <div class="set-group">
+          <h4>TOUCH CONTROLS</h4>
+          <div class="row"><span class="lbl">Style<small>Drag: ship mirrors your finger · Joystick: floating stick</small></span>
+            <span class="seg" data-set="touchScheme"><button data-val="drag">DRAG</button><button data-val="joystick">STICK</button></span></div>
+          <div class="row"><span class="lbl">Drag sensitivity</span><span class="row-ctl"><input type="range" min="0.6" max="2.2" step="0.05" data-set="sensitivity" aria-label="Drag sensitivity"><output data-out="sensitivity"></output></span></div>
+        </div>
+        <div class="set-group">
+          <h4>GRAPHICS</h4>
+          <div class="row"><span class="lbl">Quality<small>Low = fewer particles, faster on old phones</small></span>
+            <span class="seg" data-set="quality"><button data-val="high">HIGH</button><button data-val="low">LOW</button></span></div>
+          <div class="row"><span class="lbl">Show FPS</span><button class="toggle" role="switch" data-set="showFps" aria-label="Show FPS"></button></div>
+        </div>
+        <div class="set-group">
+          <h4>DATA</h4>
+          <div class="row"><span class="lbl">Reset best scores</span><button class="btn btn-danger btn-sm" data-act="reset" id="btnReset">RESET</button></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== ABOUT ============================== -->
+  <section id="scrAbout" class="screen overlay">
+    <div class="panel">
+      <div class="panel-head">
+        <button class="icon-btn" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <h2>ABOUT</h2>
+      </div>
+      <div class="panel-body">
+        <div class="creator">
+          <img src="WebLogo2.png" alt="MrGamerKing" class="avatar">
+          <div>
+            <h3>MrGamerKing</h3>
+            <p>Creator of this game. Makes <b>Minecraft videos</b> on YouTube.</p>
+          </div>
+        </div>
+        <div class="about-lines">
+          <p>This is a <b>HARD GAME</b> — tons of <b>POWER-UPS</b>, tons of <b>ENEMIES</b>.</p>
+          <p>Survive the waves, beat the <b>WARDEN</b>, and chase the top score.</p>
+          <p><b>THINK YOU CAN END IT? PROVE IT.</b></p>
+        </div>
+        <div class="links">
+          <a class="btn yt" href="https://www.youtube.com/@MrGamerKingOfficial" target="_blank" rel="noopener">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M23 7.5a3 3 0 0 0-2.1-2.1C19 5 12 5 12 5s-7 0-8.9.4A3 3 0 0 0 1 7.5 31 31 0 0 0 .6 12 31 31 0 0 0 1 16.5a3 3 0 0 0 2.1 2.1C5 19 12 19 12 19s7 0 8.9-.4a3 3 0 0 0 2.1-2.1 31 31 0 0 0 .4-4.5 31 31 0 0 0-.4-4.5zM9.8 15V9l5.2 3z"/></svg>YOUTUBE
+          </a>
+          <a class="btn dc" href="https://discord.gg/SAr4STTY" target="_blank" rel="noopener">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 5.5A17 17 0 0 0 15.7 4l-.5 1a15.7 15.7 0 0 0-6.4 0l-.5-1A17 17 0 0 0 4 5.5C1.4 9.4.8 13.2 1.1 17a17 17 0 0 0 5.2 2.6l1.1-1.8a11 11 0 0 1-1.7-.8l.4-.3a12.2 12.2 0 0 0 11.8 0l.4.3a11 11 0 0 1-1.7.8l1.1 1.8a17 17 0 0 0 5.2-2.6c.4-4.4-.7-8.2-2.9-11.5zM8.7 14.7c-1 0-1.9-1-1.9-2.1s.8-2.1 1.9-2.1 1.9 1 1.9 2.1-.8 2.1-1.9 2.1zm6.6 0c-1 0-1.9-1-1.9-2.1s.8-2.1 1.9-2.1 1.9 1 1.9 2.1-.8 2.1-1.9 2.1z"/></svg>DISCORD
+          </a>
+        </div>
+        <div class="username">YT <b>@MrGamerKingOfficial</b> · DISCORD <b>mrgamerking2010</b></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== PAUSE ============================== -->
+  <section id="scrPause" class="screen overlay">
+    <div class="panel panel-sm">
+      <div class="panel-head center"><h2>PAUSED</h2></div>
+      <div class="panel-body">
+        <div class="pause-info"><span>WAVE<b id="pauseWave">1</b></span><span>SCORE<b id="pauseScore">0</b></span></div>
+        <div class="menu-buttons">
+          <button class="btn btn-primary" data-act="resume" data-autofocus>
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l12-7.5z"/></svg>RESUME
+          </button>
+          <button class="btn" data-act="restart">RESTART</button>
+          <button class="btn" data-act="settings">SETTINGS</button>
+          <button class="btn btn-ghost" data-act="menu">MAIN MENU</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== GAME OVER ============================== -->
+  <section id="scrOver" class="screen overlay">
+    <div id="confetti" class="confetti"></div>
+    <div class="panel">
+      <div class="panel-body over">
+        <h2 class="over-title">SHIP DESTROYED</h2>
+        <div class="over-hero">
+          <div id="overRank" class="rank">A</div>
+          <div class="big-score">
+            <small>FINAL SCORE</small>
+            <b id="overScore">0</b>
+            <span id="overNew" class="new-best">★ NEW BEST ★</span>
+            <span id="overBest" class="best-line">BEST 0</span>
+          </div>
+        </div>
+        <div id="overStats" class="stats"></div>
+        <h4 class="sub-h">TOP PILOTS</h4>
+        <ol id="overBoard" class="board"></ol>
+      </div>
+      <div class="panel-foot">
+        <button class="btn btn-primary" data-act="restart" data-autofocus>PLAY AGAIN</button>
+        <button class="btn" data-act="menu">MAIN MENU</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== LOADER ============================== -->
+  <div id="loader">
+    <img src="player.png" alt="" class="load-ship">
+    <div class="load-title">SPACE MOBS SHOOTER</div>
+    <div class="load-bar"><i id="loadFill"></i></div>
+    <div class="load-text">LOADING</div>
+  </div>
+</div>
+
+<script src="settings.js"></script>
+<script src="audio.js"></script>
+<script src="input.js"></script>
+<script src="game.js"></script>
+<script src="ui.js"></script>
 </body>
 </html>

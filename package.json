@@ -1,0 +1,14 @@
+{
+  "name": "space-mobs-shooter",
+  "version": "2.0.0",
+  "description": "Arcade space shooter with Minecraft mobs — plays in the browser, on mobile, with a gamepad, or as a desktop app.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "author": "MrGamerKing",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}
