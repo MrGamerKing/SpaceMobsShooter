@@ -1,5 +1,5 @@
 /* =========================================================================
-   UI — menus, HUD, settings, banners, game over + boot sequence
+   UI — menus, HUD, settings, trophies, banners, game over + boot sequence
    ========================================================================= */
 const UI = (() => {
   const $ = (id) => document.getElementById(id);
@@ -8,6 +8,7 @@ const UI = (() => {
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const retrigger = (el, cls) => { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); };
   const MULT_COL = [null, '#ffffff', '#7ff0ff', '#6dff9a', '#ffe066', '#ffab40', '#ff6ad5', '#c78bff', '#ff4d5e'];
+  const DIFF_LABEL = { easy: 'EASY', normal: 'NORMAL', hard: 'HARD' };
 
   const SVG = {
     sound: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/></svg>',
@@ -17,14 +18,16 @@ const UI = (() => {
   };
 
   const screens = {
-    menu: $('scrMenu'), how: $('scrHow'), settings: $('scrSettings'),
-    about: $('scrAbout'), pause: $('scrPause'), over: $('scrOver'),
+    menu: $('scrMenu'), how: $('scrHow'), settings: $('scrSettings'), about: $('scrAbout'),
+    trophies: $('scrTrophies'), pause: $('scrPause'), over: $('scrOver'),
   };
+  const SUB_SCREENS = ['how', 'settings', 'about', 'trophies'];
   const els = {
     hud: $('hud'), score: $('hudScore'), combo: $('hudCombo'), mult: $('hudMult'), comboBar: $('hudComboBar'),
-    hits: $('hudHits'), pips: $('hudPips'), wave: $('hudWave'), hearts: $('hudHearts'), powers: $('hudPowers'),
+    hits: $('hudHits'), pips: $('hudPips'), power: $('hudPower'), wave: $('hudWave'), waveProg: $('waveProg'), waveFill: $('waveProgFill'),
+    hearts: $('hudHearts'), totem: $('hudTotem'), powers: $('hudPowers'),
     bossBar: $('bossBar'), bossName: $('bossName'), bossFill: $('bossFill'), bossLag: $('bossLag'),
-    abDash: $('abDash'), abNova: $('abNova'), fps: $('fps'), fxLow: $('fxLow'),
+    abDash: $('abDash'), abNova: $('abNova'), fps: $('fps'), fxLow: $('fxLow'), fxWarp: $('fxWarp'),
   };
 
   let current = null;
@@ -47,7 +50,11 @@ const UI = (() => {
       if (target) setTimeout(() => { if (current === name) target.focus({ preventScroll: true }); }, 90);
     }
   }
-  function open(name) { stack.push(current); show(name); }
+  function open(name) {
+    if (name === 'trophies') renderTrophies();
+    stack.push(current);
+    show(name);
+  }
   function back() {
     const prev = stack.pop() || (Game.state === 'paused' ? 'pause' : 'menu');
     show(prev);
@@ -57,7 +64,7 @@ const UI = (() => {
     const life = Scores.lifetime();
     $('menuBest').textContent = fmt(Scores.best());
     $('menuRuns').textContent = fmt(life.runs);
-    $('menuKills').textContent = fmt(life.kills);
+    $('menuTrophies').textContent = `${Trophies.count()}/${Trophies.LIST.length}`;
   }
 
   function requestFs() {
@@ -95,6 +102,7 @@ const UI = (() => {
     how: () => open('how'),
     settings: () => open('settings'),
     about: () => open('about'),
+    trophies: () => open('trophies'),
     back,
     resume: () => Game.resume(),
     menu: () => {
@@ -103,7 +111,9 @@ const UI = (() => {
       els.hud.classList.remove('show');
       body.classList.remove('playing');
       bossBar(false);
+      letterbox(false);
       els.fxLow.classList.remove('on');
+      els.fxWarp.classList.remove('on');
       refreshMenu();
       show('menu');
     },
@@ -114,10 +124,11 @@ const UI = (() => {
       const now = Date.now();
       if (now - resetArmed < 2500) {
         Scores.reset();
+        Trophies.reset();
         refreshMenu();
         btn.textContent = 'DONE';
         resetArmed = 0;
-        toast('BEST SCORES CLEARED');
+        toast('SCORES & TROPHIES CLEARED');
       } else {
         resetArmed = now;
         btn.textContent = 'SURE?';
@@ -127,7 +138,7 @@ const UI = (() => {
   };
 
   // ================================================================ HUD
-  const shown = { score: -1, comboOn: false, mult: 0, combo: -1, hp: -1, maxHp: -1, weapon: -1, wave: -1, low: false };
+  const shown = { score: -1, comboOn: false, mult: 0, combo: -1, hp: -1, maxHp: -1, weapon: -1, power: -1, wave: -1, low: false, prog: -2, totem: null, warp: false };
   let dispScore = 0;
   let lastScore = 0;
   let lastBump = 0;
@@ -139,6 +150,10 @@ const UI = (() => {
     shield: { label: 'SHIELD', color: '#3ee6ff', icon: SVG.shield },
     magnet: { label: 'MAGNET', color: '#ff4d5e', icon: SVG.magnet },
     double: { label: '2X SCORE', color: '#ffd23f', icon: '<img src="scoreinc2.png" alt="">' },
+    timewarp: { label: 'TIME WARP', color: '#7fd4ff', icon: '<img src="clock.png" alt="">' },
+    storm: { label: 'STORM', color: '#5ff7e8', icon: '<img src="trident.png" alt="">' },
+    drones: { label: 'ALLAYS', color: '#8fd8ff', icon: '<img src="allay.png" alt="">' },
+    fatigue: { label: 'FATIGUE', color: '#c78bff', icon: '<img src="elder.png" alt="">', bad: true },
   };
 
   function setP(el, v) {
@@ -169,15 +184,15 @@ const UI = (() => {
     });
   }
 
-  function updatePowers(buffs) {
+  function updatePowers(h) {
     for (const key in POWER_INFO) {
-      const t = buffs[key];
+      const info = POWER_INFO[key];
+      const t = info.bad ? h.debuffs[key] : h.buffs[key];
       let chip = chips[key];
       if (t > 0) {
         if (!chip) {
-          const info = POWER_INFO[key];
           chip = document.createElement('div');
-          chip.className = 'chip';
+          chip.className = info.bad ? 'chip bad' : 'chip';
           chip.style.setProperty('--c', info.color);
           chip.innerHTML = `<span class="ic"><span>${info.icon}</span></span><b>${info.label}</b>`;
           els.powers.appendChild(chip);
@@ -221,16 +236,19 @@ const UI = (() => {
       shown.mult = 0;
     }
 
-    // hull
+    // hearts + totem
     if (h.hp !== shown.hp || h.maxHp !== shown.maxHp) {
       renderHearts(h.hp, h.maxHp);
       shown.hp = h.hp;
       shown.maxHp = h.maxHp;
     }
+    if (h.totem !== shown.totem) { shown.totem = h.totem; els.totem.classList.toggle('on', h.totem); }
     const low = h.alive && h.hp === 1;
     if (low !== shown.low) { shown.low = low; els.fxLow.classList.toggle('on', low); }
+    const warp = h.buffs.timewarp > 0;
+    if (warp !== shown.warp) { shown.warp = warp; els.fxWarp.classList.toggle('on', warp); }
 
-    // weapon
+    // weapon + power
     if (h.weapon !== shown.weapon) {
       Array.from(els.pips.children).forEach((p, i) => {
         const was = p.classList.contains('on');
@@ -239,11 +257,21 @@ const UI = (() => {
       });
       shown.weapon = h.weapon;
     }
+    if (h.power !== shown.power) {
+      shown.power = h.power;
+      els.power.textContent = h.power > 1.001 ? `+${Math.round((h.power - 1) * 100)}%` : '';
+    }
 
-    // wave
+    // wave + progress
     if (h.wave !== shown.wave) {
       shown.wave = h.wave;
       els.wave.innerHTML = h.wave > 0 ? `WAVE <b>${h.wave}</b>` : 'GET READY';
+    }
+    const prog = h.waveProg < 0 ? -1 : Math.round(h.waveProg * 100) / 100;
+    if (prog !== shown.prog) {
+      shown.prog = prog;
+      els.waveProg.classList.toggle('on', prog >= 0);
+      if (prog >= 0) els.waveFill.style.transform = `scaleX(${prog})`;
     }
 
     // abilities
@@ -252,7 +280,7 @@ const UI = (() => {
     setP(els.abNova, h.nova / 100);
     els.abNova.classList.toggle('ready', h.nova >= 100);
 
-    updatePowers(h.buffs);
+    updatePowers(h);
 
     // boss
     if (h.boss >= 0) {
@@ -261,6 +289,7 @@ const UI = (() => {
       bossLagV = v >= bossLagV ? v : Math.max(v, bossLagV - dt * 0.35);
       els.bossLag.style.transform = `scaleX(${bossLagV.toFixed(4)})`;
       els.bossBar.classList.toggle('enraged', h.bossPhase === 3);
+      els.bossBar.classList.toggle('armored', h.bossArmor);
     }
 
     // fps
@@ -274,16 +303,20 @@ const UI = (() => {
   function bossBar(on, name) {
     els.bossBar.classList.toggle('show', !!on);
     if (on) {
-      els.bossName.textContent = name || 'THE WARDEN';
+      els.bossName.textContent = name || 'BOSS';
       bossLagV = 1;
       els.bossFill.style.transform = 'scaleX(1)';
       els.bossLag.style.transform = 'scaleX(1)';
-      els.bossBar.classList.remove('enraged');
+      els.bossBar.classList.remove('enraged', 'armored');
     }
   }
+  function letterbox(on) { $('letterbox').classList.toggle('on', !!on); }
 
   // ================================================================ feedback
-  function flash(kind) { retrigger(kind === 'white' ? $('fxWhite') : $('fxHurt'), 'hit'); }
+  function flash(kind) {
+    const el = kind === 'white' ? $('fxWhite') : kind === 'gold' ? $('fxGold') : $('fxHurt');
+    retrigger(el, 'hit');
+  }
 
   function banner(title, sub = '', kind = 'wave', dur = 2200) {
     const b = $('banner');
@@ -305,6 +338,24 @@ const UI = (() => {
     toastTimer = setTimeout(() => t.classList.remove('show'), 1900);
   }
 
+  // trophies pop up one at a time
+  const trophyQueue = [];
+  let trophyBusy = false;
+  function nextTrophy() {
+    const t = trophyQueue.shift();
+    if (!t) { trophyBusy = false; return; }
+    trophyBusy = true;
+    const el = $('trophyToast');
+    el.innerHTML = `<img src="${t.icon}" alt=""><div><small>TROPHY UNLOCKED</small><b>${t.name}</b></div>`;
+    el.classList.add('show');
+    Sfx.play('trophy');
+    setTimeout(() => { el.classList.remove('show'); setTimeout(nextTrophy, 400); }, 2600);
+  }
+  function onTrophy(t) {
+    trophyQueue.push(t);
+    if (!trophyBusy) nextTrophy();
+  }
+
   function denied(which) {
     if (which === 'nova') retrigger(els.abNova, 'denied');
   }
@@ -315,7 +366,7 @@ const UI = (() => {
     let items;
     if (dev === 'touch') {
       items = Settings.get('touchScheme') === 'joystick'
-        ? ['<b>LEFT THUMB</b> steer', '<b>FLICK</b> right side = dash', '<b>DOUBLE-TAP</b> right = nova']
+        ? ['<b>THUMB STICK</b> steer', '<b>FLICK</b> other side = dash', '<b>DOUBLE-TAP</b> = nova']
         : ['<b>DRAG</b> anywhere to fly', '<b>FLICK</b> to dash', '<b>2-FINGER TAP</b> = nova'];
     } else if (dev === 'gamepad') {
       items = ['<b>L-STICK</b> fly', '<b>B</b> dash', '<b>X</b> nova', '<b>START</b> pause'];
@@ -331,14 +382,18 @@ const UI = (() => {
 
   // ================================================================ game hooks
   function onStart() {
+    stack = [];
+    show(null);
     els.hearts.innerHTML = '';
     for (const key in chips) { chips[key].remove(); delete chips[key]; }
-    Object.assign(shown, { score: -1, comboOn: false, mult: 0, combo: -1, hp: -1, maxHp: -1, weapon: -1, wave: -1, low: false });
+    Object.assign(shown, { score: -1, comboOn: false, mult: 0, combo: -1, hp: -1, maxHp: -1, weapon: -1, power: -1, wave: -1, low: false, prog: -2, totem: null, warp: false });
     dispScore = 0;
     lastScore = 0;
     els.combo.classList.remove('on');
     els.fxLow.classList.remove('on');
+    els.fxWarp.classList.remove('on');
     bossBar(false);
+    letterbox(false);
     $('banner').className = 'banner';
     els.hud.classList.add('show');
     body.classList.add('playing');
@@ -347,6 +402,7 @@ const UI = (() => {
   function showPause(info) {
     $('pauseWave').textContent = info.wave || 1;
     $('pauseScore').textContent = fmt(info.score);
+    $('pauseDiff').textContent = `${DIFF_LABEL[info.difficulty] || 'NORMAL'} · ${Settings.get('hearts')}♥`;
     stack = [];
     show('pause');
   }
@@ -383,6 +439,8 @@ const UI = (() => {
   function showGameOver(r) {
     stack = [];
     els.fxLow.classList.remove('on');
+    els.fxWarp.classList.remove('on');
+    letterbox(false);
     $('overNew').classList.toggle('hidden', !r.isBest);
     $('overBest').classList.toggle('hidden', r.isBest);
     $('overBest').textContent = 'BEST ' + fmt(r.best);
@@ -393,12 +451,14 @@ const UI = (() => {
     const mins = Math.floor(r.time / 60);
     const secs = String(Math.floor(r.time % 60)).padStart(2, '0');
     const stats = [
-      ['WAVE', r.wave], ['MOBS', fmt(r.kills)], ['MAX COMBO', r.maxCombo],
-      ['BOSSES', r.bosses], ['TIME', `${mins}:${secs}`], ['GRAZES', r.grazes],
+      ['WAVE', r.wave], ['MOBS', fmt(r.kills)], ['BOSSES', r.bosses],
+      ['MAX COMBO', r.maxCombo], ['TIME', `${mins}:${secs}`], ['ELITES', r.elites],
     ];
     $('overStats').innerHTML = stats.map(([l, v], i) => `<div class="stat" style="--i:${i}"><small>${l}</small><b>${v}</b></div>`).join('');
+    $('overTrophiesWrap').classList.toggle('hidden', !r.trophies.length);
+    $('overTrophies').innerHTML = r.trophies.map((t, i) => `<span style="animation-delay:${400 + i * 90}ms"><img src="${t.icon}" alt="">${t.name}</span>`).join('');
     $('overBoard').innerHTML = r.top.length
-      ? r.top.map((e, i) => `<li class="${e === r.entry ? 'me' : ''}"><span>#${i + 1}</span><span>${fmt(e.score)}</span><span>WAVE ${e.wave}</span></li>`).join('')
+      ? r.top.map((e, i) => `<li class="${e === r.entry ? 'me' : ''}"><span>#${i + 1}</span><span>${fmt(e.score)}</span><span class="dtag ${e.diff || 'normal'}">${(DIFF_LABEL[e.diff] || 'NORMAL').slice(0, 4)}</span><span>W${e.wave}</span></li>`).join('')
       : '<li class="empty">NO SCORES YET</li>';
     $('overScore').textContent = '0';
     show('over');
@@ -407,13 +467,30 @@ const UI = (() => {
     refreshMenu();
   }
 
+  // ================================================================ trophies + boss list
+  function renderTrophies() {
+    $('trophyCount').textContent = `${Trophies.count()}/${Trophies.LIST.length}`;
+    $('trophyGrid').innerHTML = Trophies.LIST.map((t) => {
+      const got = Trophies.has(t.id);
+      const prog = got ? '' : Trophies.progress(t.id);
+      return `<div class="trophy ${got ? 'got' : 'locked'}"><img src="${t.icon}" alt=""><div><b>${got ? '★ ' : ''}${t.name}</b><p>${t.desc}</p>${prog ? `<small>${prog}</small>` : ''}</div></div>`;
+    }).join('');
+  }
+  function renderBosses() {
+    $('bossCards').innerHTML = Game.bossList().map((b) => `<div class="card"><img src="${b.img}.png" alt=""><div><b>${b.name}<span class="tag lvl">WAVE ${b.wave}</span></b><p>${b.desc}</p></div></div>`).join('');
+  }
+
   // ================================================================ settings
   function paintRange(el) {
     const min = parseFloat(el.min);
     const max = parseFloat(el.max);
-    el.style.setProperty('--v', ((parseFloat(el.value) - min) / (max - min)) * 100 + '%');
+    const v = parseFloat(el.value);
+    el.style.setProperty('--v', ((v - min) / (max - min)) * 100 + '%');
     const out = document.querySelector(`[data-out="${el.dataset.set}"]`);
-    if (out) out.textContent = el.dataset.set === 'sensitivity' ? parseFloat(el.value).toFixed(2) + 'x' : Math.round(el.value * 100) + '%';
+    if (!out) return;
+    if (el.dataset.set === 'sensitivity') out.textContent = v.toFixed(2) + 'x';
+    else if (el.dataset.set === 'hearts') out.textContent = `${v} ♥`;
+    else out.textContent = Math.round(v * 100) + '%';
   }
   function syncSetting(key) {
     document.querySelectorAll(`[data-set="${key}"]`).forEach((el) => {
@@ -422,6 +499,7 @@ const UI = (() => {
       else if (el.classList.contains('toggle')) el.setAttribute('aria-checked', String(!!v));
       else if (el.classList.contains('seg')) el.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.val === v)));
     });
+    if (key === 'lefty') body.classList.toggle('lefty', !!Settings.get('lefty'));
   }
   function initSettings() {
     document.querySelectorAll('[data-set]').forEach((el) => {
@@ -434,8 +512,8 @@ const UI = (() => {
       } else if (el.classList.contains('seg')) {
         el.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => { Settings.set(key, b.dataset.val); Sfx.play('click'); }));
       }
-      syncSetting(key);
     });
+    ['music', 'sfx', 'hearts', 'sensitivity', 'autoFire', 'shake', 'vibration', 'difficulty', 'touchScheme', 'lefty', 'quality', 'showFps'].forEach(syncSetting);
     Settings.onChange((key) => syncSetting(key));
   }
 
@@ -476,7 +554,7 @@ const UI = (() => {
     keyNav = true;
     if (!current) return;
     if (e.key === 'Escape') {
-      if (current === 'how' || current === 'settings' || current === 'about') {
+      if (SUB_SCREENS.includes(current)) {
         e.preventDefault();
         e.stopPropagation();
         back();
@@ -514,7 +592,7 @@ const UI = (() => {
         break;
       case 'back':
         if (current === 'pause') Game.resume();
-        else if (current === 'how' || current === 'settings' || current === 'about') back();
+        else if (SUB_SCREENS.includes(current)) back();
         break;
       case 'start':
         if (current === 'pause') Game.resume();
@@ -566,6 +644,7 @@ const UI = (() => {
 
     Input.onMenu(onMenuNav);
     Input.onDevice((dev) => setDeviceClass(dev));
+    Trophies.onUnlock(onTrophy);
 
     // audio can only start after a user gesture
     const unlock = () => Sfx.unlock();
@@ -586,6 +665,7 @@ const UI = (() => {
       try { await Promise.race([document.fonts.load('12px "Press Start 2P"'), wait(1500)]); } catch (_) { /* offline */ }
     }
     Game.init();
+    renderBosses();
     Sfx.music('menu');
     $('loader').classList.add('done');
     show('menu');
@@ -597,7 +677,7 @@ const UI = (() => {
 
   return {
     get current() { return current; },
-    frame, bossBar, banner, toast, flash, denied, syncMute,
+    frame, bossBar, letterbox, banner, toast, flash, denied, syncMute,
     onStart, onResume, showPause, showGameOver,
   };
 })();

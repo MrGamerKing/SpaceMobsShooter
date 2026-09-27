@@ -81,7 +81,8 @@ const Input = (() => {
     }
 
     if (Settings.get('touchScheme') === 'joystick') {
-      if (joy.id === null && e.clientX < window.innerWidth * 0.5) { startJoy(e); return; }
+      const stickSide = Settings.get('lefty') ? e.clientX > window.innerWidth * 0.5 : e.clientX < window.innerWidth * 0.5;
+      if (joy.id === null && stickSide) { startJoy(e); return; }
       extra.set(e.pointerId, { sx: e.clientX, sy: e.clientY, t: now });
       return;
     }
@@ -334,7 +335,7 @@ const Input = (() => {
               gp.vibrationActuator.playEffect('dual-rumble', { duration: ms, strongMagnitude: 0.7, weakMagnitude: 0.5 });
             }
           }
-        } else if (navigator.vibrate) {
+        } else if (navigator.vibrate && (!navigator.userActivation || navigator.userActivation.hasBeenActive)) {
           navigator.vibrate(pattern);
         }
       } catch (_) { /* unsupported */ }

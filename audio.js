@@ -9,7 +9,10 @@ const Sfx = (() => {
   const last = {};
 
   // Minimum seconds between two plays of the same sound (keeps rapid fire pleasant)
-  const THROTTLE = { shoot: 0.055, hit: 0.03, explode: 0.035, eshoot: 0.07, graze: 0.05, shield: 0.08, hover: 0.04 };
+  const THROTTLE = {
+    shoot: 0.055, hit: 0.03, explode: 0.035, eshoot: 0.07, graze: 0.05, shield: 0.08, hover: 0.04,
+    thunder: 0.15, tick: 0.2, slime: 0.08, blaze: 0.06, armor: 0.06, shulker: 0.1, wshoot: 0.08, teleport: 0.1, pop: 0.05,
+  };
 
   function unlock() {
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -180,6 +183,59 @@ const Sfx = (() => {
     gameover() { [12, 7, 3, 0, -5].forEach((n, i) => tone({ type: 'triangle', f: semi(440, n), d: 0.4, v: 0.1, delay: i * 0.18 })); },
     hover() { tone({ type: 'sine', f: 1900, d: 0.03, v: 0.02 }); },
     click() { tone({ type: 'square', f: 1200, f2: 800, d: 0.05, v: 0.04, lp: 3500 }); },
+    // ---- new mobs, bosses and power-ups
+    thunder() {
+      noise({ type: 'highpass', f: 2500, d: 0.18, v: 0.3 });
+      noise({ f: 900, f2: 60, d: 1.1, v: 0.32, delay: 0.04 });
+      tone({ type: 'sine', f: 75, f2: 32, d: 0.8, v: 0.28 });
+    },
+    totem() {
+      [0, 4, 7, 12, 16, 19, 24].forEach((n, i) => tone({ type: 'triangle', f: semi(523, n), d: 0.5, v: 0.08, delay: i * 0.06 }));
+      noise({ type: 'highpass', f: 5000, d: 1.2, v: 0.08, a: 0.1 });
+      tone({ type: 'sine', f: 130, f2: 260, d: 1, v: 0.2 });
+    },
+    tick() { tone({ type: 'square', f: 2300, d: 0.025, v: 0.03, lp: 5000 }); },
+    teleport() {
+      tone({ type: 'sine', f: 300, f2: 1400, d: 0.25, v: 0.07 });
+      noise({ type: 'bandpass', f: 1500, f2: 4000, d: 0.25, v: 0.06, q: 3 });
+    },
+    stare() { noise({ type: 'bandpass', f: 2600, d: 0.55, v: 0.05, q: 9, a: 0.25 }); },
+    slime() {
+      tone({ type: 'sine', f: 190, f2: 85, d: 0.13, v: 0.1 });
+      noise({ f: 700, d: 0.08, v: 0.05 });
+    },
+    ghast() {
+      tone({ type: 'sawtooth', f: 720, f2: 420, d: 0.6, v: 0.05, lp: 2400, a: 0.05 });
+      tone({ type: 'sawtooth', f: 760, f2: 400, d: 0.6, v: 0.04, lp: 2400, a: 0.05, detune: 30 });
+    },
+    blaze() {
+      noise({ type: 'bandpass', f: 1300, f2: 400, d: 0.18, v: 0.07, q: 1.5 });
+      tone({ type: 'triangle', f: 260, f2: 120, d: 0.12, v: 0.05 });
+    },
+    shulker() { tone({ type: 'square', f: 420, f2: 300, d: 0.08, v: 0.04, lp: 2000 }); },
+    armor() { tone({ type: 'triangle', f: 1900, f2: 1500, d: 0.06, v: 0.035 }); },
+    pop() { tone({ type: 'sine', f: 900, f2: 1500, d: 0.07, v: 0.05 }); },
+    wither() {
+      tone({ type: 'sawtooth', f: 170, f2: 60, d: 1.8, v: 0.24, lp: 900, a: 0.06 });
+      tone({ type: 'square', f: 85, f2: 40, d: 1.6, v: 0.1, lp: 400, a: 0.1 });
+      noise({ f: 1500, f2: 100, d: 1.6, v: 0.2, a: 0.1 });
+    },
+    wshoot() {
+      tone({ type: 'sawtooth', f: 240, f2: 90, d: 0.25, v: 0.07, lp: 1400 });
+      noise({ type: 'bandpass', f: 700, d: 0.15, v: 0.05, q: 2 });
+    },
+    shriek() {
+      tone({ type: 'sawtooth', f: 900, f2: 1300, d: 0.5, v: 0.045, lp: 3500 });
+      tone({ type: 'sawtooth', f: 1350, f2: 1900, d: 0.5, v: 0.035, lp: 4000, delay: 0.05 });
+    },
+    darkness() { tone({ type: 'sawtooth', f: 55, f2: 38, d: 2.4, v: 0.13, lp: 300, a: 0.4 }); },
+    heartbeat() {
+      tone({ type: 'sine', f: 72, f2: 45, d: 0.12, v: 0.22 });
+      tone({ type: 'sine', f: 66, f2: 40, d: 0.14, v: 0.16, delay: 0.16 });
+    },
+    trophy() {
+      [0, 7, 12, 16, 19].forEach((n, i) => tone({ type: 'square', f: semi(660, n), d: 0.22, v: 0.045, lp: 4000, delay: i * 0.07 }));
+    },
   };
 
   function play(name, arg) {
@@ -192,12 +248,24 @@ const Sfx = (() => {
   }
 
   // ------------------------------------------------------------ music sequencer
-  // Three moods share one 4-bar step sequencer (16 steps per bar).
+  // Four moods share one 8-bar step sequencer (16 steps per bar, 4 chords repeated twice).
   const SONGS = {
     menu: { bpm: 92, prog: [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]] },   // Am F C G
     game: { bpm: 124, prog: [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]] },
-    boss: { bpm: 146, prog: [[52, 55, 59], [53, 57, 60], [52, 55, 59], [50, 53, 57]] },  // Em F Em Dm
+    boss: { bpm: 146, prog: [[52, 55, 59], [53, 57, 60], [52, 55, 59], [50, 53, 57]] },  // Em F Em Dm (Warden)
+    wither: { bpm: 152, prog: [[50, 53, 57], [46, 50, 53], [43, 46, 50], [45, 49, 52]] }, // Dm Bb Gm A (Wither)
   };
+  // Lead melody for the gameplay song: absolute notes per 16th step (0 = rest), played on bars 5-8.
+  const MELODY = [
+    [69, 0, 0, 72, 0, 0, 76, 0, 74, 0, 72, 0, 69, 0, 0, 0],
+    [65, 0, 0, 69, 0, 0, 72, 0, 77, 0, 76, 0, 72, 0, 0, 0],
+    [67, 0, 0, 72, 0, 0, 76, 0, 79, 0, 76, 0, 74, 0, 72, 0],
+    [71, 0, 0, 74, 0, 0, 77, 0, 76, 0, 74, 0, 71, 0, 0, 0],
+  ];
+  const BOSS_LEAD = [
+    [64, 0, 67, 0, 71, 0, 72, 71, 0, 0, 67, 0, 64, 0, 0, 0],
+    [65, 0, 69, 0, 72, 0, 74, 72, 0, 0, 69, 0, 65, 0, 0, 0],
+  ];
   let song = null;
   let pending;          // undefined = no change queued; null = stop at next bar
   let step = 0;
@@ -274,7 +342,15 @@ const Sfx = (() => {
       return;
     }
 
-    const boss = song === 'boss';
+    const boss = song === 'boss' || song === 'wither';
+    const second = s >= 64; // bars 5-8 add the lead line
+    if (second && song === 'game') {
+      const n = MELODY[bar][sub];
+      if (n) voice('square', hz(n + 12), t, sixteenth * 2.6, 0.026, 3200, 0.01);
+    } else if (second && boss) {
+      const n = BOSS_LEAD[bar % 2][sub];
+      if (n) voice('sawtooth', hz(n + (song === 'wither' ? 10 : 12)), t, sixteenth * 1.8, 0.022, 2400, 0.01);
+    }
     // drums
     if (sub % 4 === 0 || (boss && sub === 14)) drum('kick', t);
     if (sub === 4 || sub === 12) drum('snare', t);
@@ -303,7 +379,7 @@ const Sfx = (() => {
       }
       scheduleStep(step, nextTime);
       nextTime += 60 / SONGS[song].bpm / 4;
-      step = (step + 1) % 64;
+      step = (step + 1) % 128;
     }
   }
   function stop() {

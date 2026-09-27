@@ -7,7 +7,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="description" content="Space Mobs Shooter — blast Minecraft mobs across the void. Play on PC, mobile or gamepad.">
+  <meta name="description" content="Space Mobs Shooter — blast Minecraft mobs and 10 bosses across the void. Play on PC, mobile or gamepad.">
   <title>Space Mobs Shooter</title>
   <link rel="icon" type="image/png" href="player.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -20,10 +20,13 @@
   <canvas id="game" aria-label="Game view"></canvas>
 
   <!-- screen effects -->
+  <div id="fxWarp" class="fx fx-warp"></div>
   <div id="fxLow" class="fx fx-low"></div>
   <div id="fxHurt" class="fx fx-hurt"></div>
   <div id="fxWhite" class="fx fx-white"></div>
+  <div id="fxGold" class="fx fx-gold"></div>
   <div id="hazard" class="hazard"><i></i><i></i></div>
+  <div id="letterbox" class="letterbox"><i></i><i></i></div>
 
   <!-- ============================== HUD ============================== -->
   <div id="hud" class="hud">
@@ -31,11 +34,12 @@
       <span class="hud-label">SCORE</span>
       <b id="hudScore" class="hud-score">0</b>
       <div id="hudCombo" class="combo"><b id="hudMult">x2</b><span class="bar"><i id="hudComboBar"></i></span><small id="hudHits">0 HITS</small></div>
-      <div class="pips-row"><span class="hud-label">WPN</span><span id="hudPips" class="pips"><i></i><i></i><i></i><i></i><i></i></span></div>
+      <div class="pips-row"><span class="hud-label">WPN</span><span id="hudPips" class="pips"><i></i><i></i><i></i><i></i><i></i></span><span id="hudPower" class="power-tag"></span></div>
     </div>
 
     <div class="hud-tc">
       <div id="hudWave" class="hud-wave">WAVE <b>1</b></div>
+      <div id="waveProg" class="wave-prog"><i id="waveProgFill"></i></div>
       <div id="bossBar" class="boss-bar">
         <div id="bossName" class="boss-name">THE WARDEN</div>
         <div class="boss-track"><i id="bossLag" class="lag"></i><i id="bossFill" class="fill"></i></div>
@@ -43,7 +47,10 @@
     </div>
 
     <div class="hud-tr">
-      <div id="hudHearts" class="hearts"></div>
+      <div class="hearts-wrap">
+        <div id="hudHearts" class="hearts"></div>
+        <div id="hudTotem" class="hud-totem" title="Totem of Undying"><img src="totem.png" alt=""></div>
+      </div>
       <button id="btnPause" class="icon-btn hud-btn" aria-label="Pause">
         <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
       </button>
@@ -70,6 +77,7 @@
 
   <div id="banner" class="banner"><h3 id="bannerTitle"></h3><div class="stripe"></div><p id="bannerSub"></p></div>
   <div id="toast" class="toast"></div>
+  <div id="trophyToast" class="trophy-toast"></div>
 
   <!-- ============================== MAIN MENU ============================== -->
   <section id="scrMenu" class="screen menu-screen">
@@ -88,20 +96,26 @@
         <button class="btn btn-primary" data-act="play" data-autofocus style="--i:0">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l12-7.5z"/></svg>PLAY
         </button>
-        <button class="btn" data-act="how" style="--i:1">HOW TO PLAY</button>
+        <div class="seg seg-wide" data-set="difficulty" style="--i:1" aria-label="Difficulty">
+          <button data-val="easy">EASY</button><button data-val="normal">NORMAL</button><button data-val="hard">HARD</button>
+        </div>
         <div class="menu-row" style="--i:2">
+          <button class="btn" data-act="how">HOW TO PLAY</button>
+          <button class="btn" data-act="trophies">TROPHIES</button>
+        </div>
+        <div class="menu-row" style="--i:3">
           <button class="btn" data-act="settings">SETTINGS</button>
           <button class="btn" data-act="about">ABOUT</button>
         </div>
-        <button id="btnQuit" class="btn btn-ghost hidden" data-act="quit" style="--i:3">QUIT</button>
+        <button id="btnQuit" class="btn btn-ghost hidden" data-act="quit" style="--i:4">QUIT</button>
       </nav>
       <div class="menu-stats">
         <span class="stat-pill">BEST<b id="menuBest">0</b></span>
         <span class="stat-pill">RUNS<b id="menuRuns">0</b></span>
-        <span class="stat-pill">MOBS<b id="menuKills">0</b></span>
+        <span class="stat-pill">TROPHIES<b id="menuTrophies">0</b></span>
       </div>
     </div>
-    <div class="version">v2.0 · REMASTERED</div>
+    <div class="version">v3.0 · 10 BOSSES</div>
     <div class="menu-hint">PRESS ENTER TO PLAY</div>
   </section>
 
@@ -115,7 +129,8 @@
       <div class="tabs" role="tablist">
         <button role="tab" data-tab="tabControls" aria-selected="true">CONTROLS</button>
         <button role="tab" data-tab="tabMobs" aria-selected="false">MOBS</button>
-        <button role="tab" data-tab="tabPowers" aria-selected="false">POWER-UPS</button>
+        <button role="tab" data-tab="tabBosses" aria-selected="false">BOSSES</button>
+        <button role="tab" data-tab="tabPowers" aria-selected="false">POWERS</button>
       </div>
       <div class="panel-body">
         <div id="tabControls" class="tab-page active">
@@ -136,7 +151,7 @@
               <span>Drag anywhere — the ship mirrors your finger, never hides under it</span><span><kbd class="k">DRAG</kbd></span>
               <span>Quick swipe &amp; release to dash that way</span><span><kbd class="k">FLICK</kbd></span>
               <span>Nova bomb</span><span><kbd class="k">2-FINGER TAP</kbd></span>
-              <span>Prefer a stick? Switch to Joystick in Settings</span><span><kbd class="k">SETTINGS</kbd></span>
+              <span>Prefer a stick or left-handed buttons? See Settings</span><span><kbd class="k">SETTINGS</kbd></span>
             </div>
           </div>
           <div class="ctrl-group">
@@ -155,29 +170,55 @@
             <div class="card"><img src="skeleton.png" alt=""><div><b>SKELETON</b><p>Stops, strafes and fires aimed arrows. It glows before every shot.</p></div></div>
             <div class="card"><img src="creeper.png" alt=""><div><b>CREEPER</b><p>Hunts you and explodes. Drops TNT — shoot it to blow up nearby mobs.</p></div></div>
             <div class="card"><img src="vex.png" alt=""><div><b>VEX</b><p>Fast swarms that shake, then dive straight at you.</p></div></div>
+            <div class="card"><img src="slime.png" alt=""><div><b>SLIME<span class="tag new">NEW</span></b><p>Bounces toward you and splits into smaller slimes when hit hard enough.</p></div></div>
             <div class="card"><img src="evoker.png" alt=""><div><b>EVOKER</b><p>Summons Vex and casts magic orbs. Kill it first!</p></div></div>
-            <div class="card"><img src="warden.png" alt=""><div><b>WARDEN<span class="tag">BOSS</span></b><p>Every 5th wave. Three phases — dodge the red zone before its Sonic Boom.</p></div></div>
+            <div class="card"><img src="blaze.png" alt=""><div><b>BLAZE<span class="tag new">NEW</span></b><p>Its rods spin faster as it heats up, then it fires a burst of fireballs.</p></div></div>
+            <div class="card"><img src="enderman.png" alt=""><div><b>ENDERMAN<span class="tag new">NEW</span></b><p>Teleports next to you, stares, then lunges. Sometimes dodges your shots.</p></div></div>
+            <div class="card"><img src="shulker.png" alt=""><div><b>SHULKER<span class="tag new">NEW</span></b><p>Armored while its shell is shut. Fires homing bullets you can shoot down.</p></div></div>
+            <div class="card"><img src="ghast.png" alt=""><div><b>GHAST<span class="tag new">NEW</span></b><p>Big fireballs that burst into shards — shoot them to blast them back!</p></div></div>
+            <div class="card wide"><div class="svg-ic elite-ic">★</div><div><b>ELITE MOBS</b><p>From wave 7, some mobs glow gold: 3x health, faster attacks, triple points and a guaranteed power-up.</p></div></div>
           </div>
+        </div>
+
+        <div id="tabBosses" class="tab-page">
+          <p class="tab-intro">A boss arrives every 5 waves — 10 different bosses. Beat all ten and they return as <b>MK II</b>, <b>MK III</b>... with a new colour, more bullets, faster attacks and new moves. Every boss you beat makes your weapon stronger.</p>
+          <div id="bossCards" class="cards"></div>
         </div>
 
         <div id="tabPowers" class="tab-page">
           <div class="cards">
-            <div class="card"><img src="newbullet.png" alt=""><div><b>WEAPON STAR</b><p>Upgrades your gun up to level 5 with homing missiles.</p></div></div>
+            <div class="card"><img src="newbullet.png" alt=""><div><b>WEAPON STAR</b><p>Upgrades your gun to level 5 (homing missiles). After that each star adds +10% power.</p></div></div>
             <div class="card"><img src="booster.png" alt=""><div><b>OVERDRIVE</b><p>Double fire rate, bigger piercing shots, extra speed.</p></div></div>
             <div class="card"><div class="svg-ic" id="howShield"></div><div><b>SHIELD</b><p>Blocks everything for 10s. Ram mobs to crush them.</p></div></div>
             <div class="card"><div class="svg-ic" id="howMagnet"></div><div><b>MAGNET</b><p>Pulls every pickup on screen straight to you.</p></div></div>
+            <div class="card"><img src="clock.png" alt=""><div><b>TIME WARP<span class="tag new">NEW</span></b><p>Slows every mob and bullet to 40% for 7 seconds. You stay full speed.</p></div></div>
+            <div class="card"><img src="trident.png" alt=""><div><b>THUNDERSTORM<span class="tag new">NEW</span></b><p>Lightning strikes up to 3 mobs every half second.</p></div></div>
+            <div class="card"><img src="allay.png" alt=""><div><b>ALLAY DRONES<span class="tag new">NEW</span></b><p>Two helpers orbit you and fire homing bolts.</p></div></div>
+            <div class="card"><img src="totem.png" alt=""><div><b>TOTEM OF UNDYING<span class="tag new">NEW</span></b><p>An extra life: when you would die you come back with 3 hearts and a free Nova.</p></div></div>
             <div class="card"><img src="scoreinc2.png" alt=""><div><b>SCORE POTION</b><p>Doubles all points for 12 seconds.</p></div></div>
             <div class="card"><img src="scoreinc.png" alt=""><div><b>EMERALD ORB</b><p>+250 points instantly.</p></div></div>
-            <div class="card"><img src="heart.png" alt=""><div><b>HEART</b><p>Repairs 1 hull. At full health it raises your max hull (up to 8).</p></div></div>
+            <div class="card"><img src="heart.png" alt=""><div><b>HEART</b><p>+1 heart and cures Mining Fatigue. At full health it adds a heart slot (up to 10).</p></div></div>
           </div>
           <ul class="tips">
             <li><b>COMBO</b> — chain kills quickly to raise your multiplier up to x8. Getting hit or letting a mob escape resets it.</li>
+            <li><b>NOVA</b> — a screen-wide shockwave. It only recharges from mobs YOU kill and from grazing bullets — kills made by the Nova itself don't count.</li>
             <li><b>GRAZE</b> — skim bullets without touching them for bonus points and Nova charge.</li>
-            <li><b>NOVA</b> — a screen-wide shockwave that wipes bullets and hurts every mob. Charges from kills and grazes.</li>
             <li><b>PERFECT</b> — clear a wave without taking damage for double bonus and a free power-up.</li>
           </ul>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- ============================== TROPHIES ============================== -->
+  <section id="scrTrophies" class="screen overlay">
+    <div class="panel">
+      <div class="panel-head">
+        <button class="icon-btn" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <h2>TROPHIES</h2>
+        <span id="trophyCount" class="trophy-count">0/0</span>
+      </div>
+      <div class="panel-body"><div id="trophyGrid" class="trophy-grid"></div></div>
     </div>
   </section>
 
@@ -190,21 +231,25 @@
       </div>
       <div class="panel-body">
         <div class="set-group">
-          <h4>AUDIO</h4>
-          <div class="row"><span class="lbl">Music</span><span class="row-ctl"><input type="range" min="0" max="1" step="0.05" data-set="music" aria-label="Music volume"><output data-out="music"></output></span></div>
-          <div class="row"><span class="lbl">Sound effects</span><span class="row-ctl"><input type="range" min="0" max="1" step="0.05" data-set="sfx" aria-label="Sound effects volume"><output data-out="sfx"></output></span></div>
-        </div>
-        <div class="set-group">
           <h4>GAMEPLAY</h4>
+          <div class="row"><span class="lbl">Hearts<small>How many lives you start with. Fewer hearts = bigger score bonus</small></span><span class="row-ctl"><input type="range" min="1" max="10" step="1" data-set="hearts" aria-label="Starting hearts"><output data-out="hearts"></output></span></div>
+          <div class="row"><span class="lbl">Difficulty<small>Mob health, bullet speed and score</small></span>
+            <span class="seg" data-set="difficulty"><button data-val="easy">EASY</button><button data-val="normal">NORMAL</button><button data-val="hard">HARD</button></span></div>
           <div class="row"><span class="lbl">Auto-fire<small>Shoot automatically — focus on dodging</small></span><button class="toggle" role="switch" data-set="autoFire" aria-label="Auto-fire"></button></div>
           <div class="row"><span class="lbl">Screen shake</span><button class="toggle" role="switch" data-set="shake" aria-label="Screen shake"></button></div>
           <div class="row"><span class="lbl">Vibration<small>Phones and gamepads</small></span><button class="toggle" role="switch" data-set="vibration" aria-label="Vibration"></button></div>
         </div>
         <div class="set-group">
+          <h4>AUDIO</h4>
+          <div class="row"><span class="lbl">Music</span><span class="row-ctl"><input type="range" min="0" max="1" step="0.05" data-set="music" aria-label="Music volume"><output data-out="music"></output></span></div>
+          <div class="row"><span class="lbl">Sound effects</span><span class="row-ctl"><input type="range" min="0" max="1" step="0.05" data-set="sfx" aria-label="Sound effects volume"><output data-out="sfx"></output></span></div>
+        </div>
+        <div class="set-group">
           <h4>TOUCH CONTROLS</h4>
-          <div class="row"><span class="lbl">Style<small>Drag: ship mirrors your finger · Joystick: floating stick</small></span>
+          <div class="row"><span class="lbl">Style<small>Drag: ship mirrors your finger · Stick: floating joystick</small></span>
             <span class="seg" data-set="touchScheme"><button data-val="drag">DRAG</button><button data-val="joystick">STICK</button></span></div>
           <div class="row"><span class="lbl">Drag sensitivity</span><span class="row-ctl"><input type="range" min="0.6" max="2.2" step="0.05" data-set="sensitivity" aria-label="Drag sensitivity"><output data-out="sensitivity"></output></span></div>
+          <div class="row"><span class="lbl">Left-handed<small>Buttons on the left, joystick on the right</small></span><button class="toggle" role="switch" data-set="lefty" aria-label="Left-handed layout"></button></div>
         </div>
         <div class="set-group">
           <h4>GRAPHICS</h4>
@@ -214,7 +259,7 @@
         </div>
         <div class="set-group">
           <h4>DATA</h4>
-          <div class="row"><span class="lbl">Reset best scores</span><button class="btn btn-danger btn-sm" data-act="reset" id="btnReset">RESET</button></div>
+          <div class="row"><span class="lbl">Reset best scores &amp; trophies</span><button class="btn btn-danger btn-sm" data-act="reset" id="btnReset">RESET</button></div>
         </div>
       </div>
     </div>
@@ -236,8 +281,8 @@
           </div>
         </div>
         <div class="about-lines">
-          <p>This is a <b>HARD GAME</b> — tons of <b>POWER-UPS</b>, tons of <b>ENEMIES</b>.</p>
-          <p>Survive the waves, beat the <b>WARDEN</b>, and chase the top score.</p>
+          <p>This is a <b>HARD GAME</b> — tons of <b>POWER-UPS</b>, tons of <b>ENEMIES</b> and <b>10 BOSSES</b>.</p>
+          <p>Survive the waves, beat every boss, and chase the top score.</p>
           <p><b>THINK YOU CAN END IT? PROVE IT.</b></p>
         </div>
         <div class="links">
@@ -258,7 +303,7 @@
     <div class="panel panel-sm">
       <div class="panel-head center"><h2>PAUSED</h2></div>
       <div class="panel-body">
-        <div class="pause-info"><span>WAVE<b id="pauseWave">1</b></span><span>SCORE<b id="pauseScore">0</b></span></div>
+        <div class="pause-info"><span>WAVE<b id="pauseWave">1</b></span><span>SCORE<b id="pauseScore">0</b></span><span id="pauseDiff" class="diff-tag">NORMAL</span></div>
         <div class="menu-buttons">
           <button class="btn btn-primary" data-act="resume" data-autofocus>
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l12-7.5z"/></svg>RESUME
@@ -287,6 +332,10 @@
           </div>
         </div>
         <div id="overStats" class="stats"></div>
+        <div id="overTrophiesWrap" class="over-trophies-wrap">
+          <h4 class="sub-h">NEW TROPHIES</h4>
+          <div id="overTrophies" class="over-trophies"></div>
+        </div>
         <h4 class="sub-h">TOP PILOTS</h4>
         <ol id="overBoard" class="board"></ol>
       </div>
@@ -307,8 +356,10 @@
 </div>
 
 <script src="settings.js"></script>
+<script src="trophies.js"></script>
 <script src="audio.js"></script>
 <script src="input.js"></script>
+<script src="bosses.js"></script>
 <script src="game.js"></script>
 <script src="ui.js"></script>
 </body>

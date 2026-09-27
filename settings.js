@@ -16,6 +16,9 @@ const Settings = (() => {
     sensitivity: 1.25,
     vibration: true,
     showFps: false,
+    difficulty: 'normal',  // 'easy' | 'normal' | 'hard'
+    hearts: 5,             // starting hearts, 1-10
+    lefty: false,          // mirror touch buttons + joystick for left-handed play
   };
 
   const data = { ...defaults };
