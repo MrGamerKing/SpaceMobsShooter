@@ -20,8 +20,11 @@ const UI = (() => {
   const screens = {
     menu: $('scrMenu'), how: $('scrHow'), settings: $('scrSettings'), about: $('scrAbout'),
     trophies: $('scrTrophies'), skins: $('scrSkins'), pause: $('scrPause'), over: $('scrOver'),
+    modes: $('scrModes'), arcade: $('scrArcade'), hardcore: $('scrHardcore'),
   };
-  const SUB_SCREENS = ['how', 'settings', 'about', 'trophies', 'skins'];
+  const SUB_SCREENS = ['how', 'settings', 'about', 'trophies', 'skins', 'modes', 'arcade', 'hardcore'];
+  const TIER = Object.fromEntries(HARDCORE_TIERS.map((t) => [t.id, t]));
+  const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
   const els = {
     hud: $('hud'), score: $('hudScore'), combo: $('hudCombo'), mult: $('hudMult'), comboBar: $('hudComboBar'),
     hits: $('hudHits'), pips: $('hudPips'), power: $('hudPower'), wave: $('hudWave'), waveProg: $('waveProg'), waveFill: $('waveProgFill'),
@@ -54,6 +57,9 @@ const UI = (() => {
   function open(name) {
     if (name === 'trophies') renderTrophies();
     if (name === 'skins') renderSkins();
+    if (name === 'modes') renderModes();
+    if (name === 'arcade') renderArcade();
+    if (name === 'hardcore') renderHardcore();
     stack.push(current);
     show(name);
     if (name === 'skins' && keyNav) {
@@ -73,6 +79,10 @@ const UI = (() => {
     $('menuBest').textContent = fmt(Scores.best());
     $('menuRuns').textContent = fmt(life.runs);
     $('menuTrophies').textContent = `${Trophies.count()}/${Trophies.LIST.length}`;
+    const cp = Checkpoint.get();
+    $('menuModeLine').innerHTML = cp
+      ? `<button class="mode-pill" data-act="continue">▶ CONTINUE ARCADE · WAVE ${cp.wave}</button>`
+      : '';
   }
 
   function requestFs() {
@@ -95,18 +105,47 @@ const UI = (() => {
   }
   function syncMute() { $('btnMute').innerHTML = Sfx.muted ? SVG.muted : SVG.sound; }
 
-  function startGame() {
+  /** opts: { mode: 'arcade' | 'hardcore', tier, checkpoint } (see Game.start) */
+  function startGame(opts) {
     Sfx.unlock();
     stack = [];
     show(null);
     if (Settings.isTouch && !document.fullscreenElement) requestFs();
-    Game.start();
+    Game.start(opts || { mode: 'arcade' });
+  }
+  /** Play the same kind of run again: Hardcore restarts the tier, Arcade goes back to the last checkpoint. */
+  function retry() {
+    const r = Game.run;
+    if (r.mode === 'hardcore') { startGame({ mode: 'hardcore', tier: r.tier }); return; }
+    const cp = Checkpoint.get();
+    startGame(cp ? { mode: 'arcade', checkpoint: cp } : { mode: 'arcade' });
   }
 
   let resetArmed = 0;
+  let newArmed = 0;
   const actions = {
-    play: startGame,
-    restart: startGame,
+    play: () => open('modes'),
+    arcade: () => open('arcade'),
+    hardcore: () => open('hardcore'),
+    tier: (btn) => startGame({ mode: 'hardcore', tier: btn.dataset.tier }),
+    continue: () => {
+      const cp = Checkpoint.get();
+      if (cp) startGame({ mode: 'arcade', checkpoint: cp });
+    },
+    newgame: (btn) => {
+      // starting over erases the checkpoint, so ask once
+      if (Checkpoint.get() && Date.now() - newArmed > 2500) {
+        newArmed = Date.now();
+        btn.textContent = 'ERASE CHECKPOINT & START?';
+        btn.classList.add('armed');
+        setTimeout(() => { btn.textContent = 'NEW GAME'; btn.classList.remove('armed'); }, 2500);
+        return;
+      }
+      newArmed = 0;
+      Checkpoint.clear();
+      startGame({ mode: 'arcade' });
+    },
+    restart: retry,
     how: () => open('how'),
     settings: () => open('settings'),
     about: () => open('about'),
@@ -123,6 +162,7 @@ const UI = (() => {
       letterbox(false);
       els.fxLow.classList.remove('on');
       els.fxWarp.classList.remove('on');
+      $('hint').classList.remove('show');
       refreshMenu();
       show('menu');
     },
@@ -274,7 +314,8 @@ const UI = (() => {
     // wave + progress
     if (h.wave !== shown.wave) {
       shown.wave = h.wave;
-      els.wave.innerHTML = h.wave > 0 ? `WAVE <b>${h.wave}</b>` : 'GET READY';
+      const tag = h.tier && TIER[h.tier] ? ` <i class="hud-tier ${h.tier}">☠ ${TIER[h.tier].name}</i>` : '';
+      els.wave.innerHTML = (h.wave > 0 ? `WAVE <b>${h.wave}</b>` : 'GET READY') + tag;
     }
     const prog = h.waveProg < 0 ? -1 : Math.round(h.waveProg * 100) / 100;
     if (prog !== shown.prog) {
@@ -430,7 +471,10 @@ const UI = (() => {
   function showPause(info) {
     $('pauseWave').textContent = info.wave || 1;
     $('pauseScore').textContent = fmt(info.score);
-    $('pauseDiff').textContent = `${DIFF_LABEL[info.difficulty] || 'NORMAL'} · ${Settings.get('hearts')}♥`;
+    const hc = info.mode === 'hardcore' && TIER[info.tier];
+    $('pauseDiff').textContent = hc ? `☠ ${hc.name} · ${info.hearts}♥` : `${DIFF_LABEL[info.difficulty] || 'NORMAL'} · ${info.hearts}♥`;
+    const cp = !hc && Checkpoint.get();
+    $('btnRestart').textContent = hc ? 'RESTART FROM WAVE 1' : cp ? `LAST CHECKPOINT · WAVE ${cp.wave}` : 'RESTART';
     stack = [];
     show('pause');
   }
@@ -478,15 +522,21 @@ const UI = (() => {
     rk.dataset.rank = rank;
     const mins = Math.floor(r.time / 60);
     const secs = String(Math.floor(r.time % 60)).padStart(2, '0');
+    const hc = r.mode === 'hardcore' && TIER[r.tier];
     const stats = [
       ['WAVE', r.wave], ['MOBS', fmt(r.kills)], ['BOSSES', r.bosses],
-      ['MAX COMBO', r.maxCombo], ['TIME', `${mins}:${secs}`], ['ELITES', r.elites],
+      ['MAX COMBO', r.maxCombo], ['TIME', `${mins}:${secs}`], ['MODE', hc ? '☠ ' + hc.name : DIFF_LABEL[r.difficulty] || 'NORMAL'],
     ];
+    $('overPrimary').textContent = hc ? 'TRY AGAIN' : r.checkpoint ? `CONTINUE · WAVE ${r.checkpoint.wave}` : 'PLAY AGAIN';
     $('overStats').innerHTML = stats.map(([l, v], i) => `<div class="stat" style="--i:${i}"><small>${l}</small><b>${v}</b></div>`).join('');
     $('overTrophiesWrap').classList.toggle('hidden', !r.trophies.length);
     $('overTrophies').innerHTML = r.trophies.map((t, i) => `<span style="animation-delay:${400 + i * 90}ms"><img src="${t.icon}" alt="">${t.name}</span>`).join('');
     $('overBoard').innerHTML = r.top.length
-      ? r.top.map((e, i) => `<li class="${e === r.entry ? 'me' : ''}"><span>#${i + 1}</span><span>${fmt(e.score)}</span><span class="dtag ${e.diff || 'normal'}">${(DIFF_LABEL[e.diff] || 'NORMAL').slice(0, 4)}</span><span>W${e.wave}</span></li>`).join('')
+      ? r.top.map((e, i) => {
+        const t = TIER[e.mode];
+        const tag = t ? `<span class="dtag hc ${t.id}">☠${t.name}</span>` : `<span class="dtag ${e.diff || 'normal'}">${(DIFF_LABEL[e.diff] || 'NORMAL').slice(0, 4)}</span>`;
+        return `<li class="${e === r.entry ? 'me' : ''}"><span>#${i + 1}</span><span>${fmt(e.score)}</span>${tag}<span>W${e.wave}</span></li>`;
+      }).join('')
       : '<li class="empty">NO SCORES YET</li>';
     $('overScore').textContent = '0';
     show('over');
@@ -504,6 +554,50 @@ const UI = (() => {
       return `<div class="trophy ${got ? 'got' : 'locked'}"><img src="${t.icon}" alt=""><div><b>${got ? '★ ' : ''}${t.name}</b><p>${t.desc}</p>${prog ? `<small>${prog}</small>` : ''}</div></div>`;
     }).join('');
   }
+  // ================================================================ modes
+  function renderModes() {
+    const cp = Checkpoint.get();
+    $('modeArcadeFoot').textContent = cp ? `⚑ CHECKPOINT · WAVE ${cp.wave} · ${fmt(cp.score)} PTS` : 'NO CHECKPOINT YET';
+    $('modeArcadeFoot').classList.toggle('on', !!cp);
+  }
+  function renderArcade() {
+    const cp = Checkpoint.get();
+    const cont = $('cpCard').querySelector('[data-act=continue]');
+    const ng = $('btnNewGame');
+    $('cpCard').classList.toggle('hidden', !cp);
+    $('cpNone').classList.toggle('hidden', !!cp);
+    ng.classList.toggle('btn-primary', !cp);
+    ng.classList.remove('armed');
+    ng.textContent = 'NEW GAME';
+    cont.toggleAttribute('data-autofocus', !!cp);
+    ng.toggleAttribute('data-autofocus', !cp);
+    if (!cp) return;
+    $('cpDiff').textContent = DIFF_LABEL[cp.diff] || 'NORMAL';
+    $('cpDiff').className = 'diff-tag ' + (cp.diff || 'normal');
+    const weapon = cp.weapon >= 5 ? `MAX · ${Math.round((cp.power || 1) * 100)}%` : `LV ${cp.weapon}`;
+    const cells = [['WAVE', cp.wave], ['SCORE', fmt(cp.score)], ['HEARTS', `${cp.maxHp} ♥`], ['WEAPON', weapon]];
+    if (cp.totem) cells.push(['TOTEM', '✓']);
+    $('cpStats').innerHTML = cells.map(([l, v]) => `<span><small>${l}</small><b>${v}</b></span>`).join('');
+    const list = Game.bossList();
+    const next = list.length ? list[cp.bossLevel % list.length] : null;
+    const mark = list.length ? Math.floor(cp.bossLevel / list.length) + 1 : 1;
+    $('cpNext').innerHTML = next
+      ? `Next boss: <b>${next.name}${mark > 1 ? ' MK ' + (ROMAN[mark - 1] || mark) : ''}</b> at wave ${Math.ceil(cp.wave / 5) * 5}`
+      : '';
+  }
+  function renderHardcore() {
+    $('tierList').innerHTML = HARDCORE_TIERS.map((t, i) => {
+      const best = Scores.bestFor(t.id);
+      const hearts = '<img src="heart.png" alt="">'.repeat(t.hearts);
+      return `<button class="tier ${t.id}" data-act="tier" data-tier="${t.id}"${i === 0 ? ' data-autofocus' : ''}>`
+        + `<span class="tier-top"><span class="tier-name">${t.name}</span><span class="tier-hearts" aria-label="${t.hearts} hearts">${hearts}</span></span>`
+        + `<span class="tier-desc">${t.desc}</span>`
+        + `<span class="tier-foot"><span class="tier-bonus">SCORE ×${t.bonus}</span>`
+        + `<span class="tier-best">${best ? `BEST ${fmt(best.score)} · WAVE ${best.wave}` : 'NOT PLAYED YET'}</span>`
+        + `${Trophies.has(t.id) ? '<span class="tier-won">★ BOSS BEATEN</span>' : ''}</span></button>`;
+    }).join('');
+  }
+
   // ================================================================ skins
   const skinById = (id) => SKINS.find((s) => s.id === id) || SKINS[0];
   function paintSkinStage(s) {
@@ -566,11 +660,9 @@ const UI = (() => {
     const max = parseFloat(el.max);
     const v = parseFloat(el.value);
     el.style.setProperty('--v', ((v - min) / (max - min)) * 100 + '%');
-    const out = document.querySelector(`[data-out="${el.dataset.set}"]`);
-    if (!out) return;
-    if (el.dataset.set === 'sensitivity') out.textContent = v.toFixed(2) + 'x';
-    else if (el.dataset.set === 'hearts') out.textContent = `${v} ♥`;
-    else out.textContent = Math.round(v * 100) + '%';
+    const key = el.dataset.set;
+    const text = key === 'sensitivity' ? v.toFixed(2) + 'x' : key === 'hearts' ? `${v} ♥` : Math.round(v * 100) + '%';
+    document.querySelectorAll(`[data-out="${key}"]`).forEach((out) => { out.textContent = text; });
   }
   function syncSetting(key) {
     document.querySelectorAll(`[data-set="${key}"]`).forEach((el) => {
@@ -651,7 +743,7 @@ const UI = (() => {
     }
     if (e.key === 'Enter' && current === 'menu' && !(a && screens.menu.contains(a))) {
       e.preventDefault();
-      startGame();
+      open('modes');
     }
   }
   function onMenuNav(a) {
@@ -677,7 +769,7 @@ const UI = (() => {
         break;
       case 'start':
         if (current === 'pause') Game.resume();
-        else if (current === 'menu') startGame();
+        else if (current === 'menu') open('modes');
         break;
       default:
         break;

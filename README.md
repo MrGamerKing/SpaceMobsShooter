@@ -20,6 +20,21 @@ Browsers only allow sound after your first click, tap or key press, so in a brow
 
 To skip the intro while testing, open `index.html#nointro`.
 
+## Game modes
+
+Press **PLAY** and pick a mode:
+
+- **Arcade:** choose the difficulty (Easy, Normal or Hard) and your starting hearts (1–10). After every boss your run is saved at a **checkpoint**. From the Arcade screen (or the **Continue** button on the main menu, or the game-over screen) you can continue from the last checkpoint with full hearts, or start a **New Game**. A new game asks you to confirm first, because it erases the checkpoint.
+- **Hardcore:** there are no saves: if you die, you start again from wave 1. The difficulty is always **Hard**, and you can never gain extra hearts beyond the ones you start with. Choose one of three challenges:
+
+| Challenge | Hearts | Rules | Score bonus |
+| --- | --- | --- | --- |
+| Extreme | 5 | Heart pickups heal you up to 5. A Totem of Undying revives you with 3 hearts. | ×1.25 |
+| Insane | 3 | Heart pickups heal you up to 3. A Totem of Undying revives you with 3 hearts. | ×1.5 |
+| Brutal | 1 | Hearts never drop, only Totems of Undying (which drop a little more often). A totem revives you with 1 heart. | ×2 |
+
+Beating a boss in each Hardcore challenge unlocks a trophy.
+
 ## Controls
 
 | Action | Keyboard / mouse | Touch | Gamepad |
@@ -30,7 +45,7 @@ To skip the intro while testing, open `index.html#nointro`.
 | Nova bomb | B / right click | Two-finger tap or the nova button | X / Y / LB |
 | Pause | Esc / P | Pause button | Start |
 
-The Settings screen switches touch controls to a floating joystick or a left-handed layout. It also sets your starting hearts (1–10) and the difficulty.
+The Settings screen switches touch controls to a floating joystick or a left-handed layout. It also sets your Arcade starting hearts (1–10) and difficulty.
 
 ## Bosses
 
@@ -88,7 +103,7 @@ Phantom (the original), Steve with an elytra, Alex with an enchanted elytra, End
   - Overdrive, shield, magnet and 2x score.
   - **Time Warp** (clock), **Thunderstorm** (trident), **Allay drones** and **Totem of Undying** (an extra life).
 - The Nova bomb recharges only from mobs **you** kill and from grazing bullets. Kills made by the Nova itself don't recharge it.
-- A combo multiplier up to x8, perfect-wave bonuses, 19 trophies and a local high-score board.
+- A combo multiplier up to x8, perfect-wave bonuses, 22 trophies and a local high-score board.
 - Four space zones, mobs that shatter into pieces, screen shake, slow motion, and music and sound effects generated in code.
 
 ## Files
@@ -98,7 +113,7 @@ Everything the game needs is in this one folder, with no subfolders:
 ```
 index.html     menus, HUD and screens
 game.css       all styling and animations
-settings.js    saved settings and high scores
+settings.js    saved settings, high scores, Arcade checkpoint and Hardcore challenge rules
 trophies.js    trophies (achievements)
 audio.js       generated sound effects and music (Web Audio)
 input.js       keyboard, mouse, touch gestures, joystick and gamepad

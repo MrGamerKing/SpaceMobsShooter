@@ -472,6 +472,9 @@ const Game = (() => {
   let diff = DIFF.normal;
   let diffKey = 'normal';
   let heartMul = 1;
+  // current run: Arcade (checkpoint after every boss) or a Hardcore tier (see HARDCORE_TIERS in settings.js)
+  let run = { mode: 'arcade', tier: null };
+  let rules = { extraHearts: true, heartDrops: true, totemHearts: 3 };
   let boss = null;
   let bossLevel = 0;
   let BK = null;        // boss definitions from bosses.js
@@ -1337,7 +1340,7 @@ const Game = (() => {
     const p = player;
     const k = view.k;
     p.totem = false;
-    p.hp = Math.min(3, p.maxHp);
+    p.hp = Math.min(rules.totemHearts, p.maxHp);
     p.invuln = 3;
     stats.totems += 1;
     Trophies.unlock('immortal');
@@ -2503,6 +2506,8 @@ const Game = (() => {
     if (!player.totem && !totemOut) { spawnPickup('totem', e.x + 40 * k, e.y); totemOut = true; }
     else spawnPickup(pick(POWER_POOL), e.x + 40 * k, e.y);
     for (let i = 0; i < 8; i++) spawnPickup('gem', e.x + rand(-60, 60) * k, e.y + rand(-30, 30) * k, rand(-160, 160) * k, rand(-260, -80) * view.vs);
+    if (run.mode === 'hardcore') Trophies.unlock(run.tier);
+    saveCheckpoint(wave.n + 1, true);
   }
 
   // ---- hits, kills, drops
@@ -2709,7 +2714,8 @@ const Game = (() => {
       return;
     }
     const luck = e.type === 'evoker' || e.type === 'ghast' ? 3 : 1;
-    if (!player.totem && !totemOut && Math.random() < 0.005 * luck) {
+    // totems are a little more common when hearts never drop (Hardcore Brutal)
+    if (!player.totem && !totemOut && Math.random() < 0.005 * luck * (rules.heartDrops ? 1 : 1.6)) {
       spawnPickup('totem', e.x, e.y);
       totemOut = true;
       return;
@@ -3366,6 +3372,7 @@ const Game = (() => {
 
   // ================================================================ pickups
   function spawnPickup(type, x, y, vx, vy) {
+    if (type === 'heart' && !rules.heartDrops) return; // Hardcore Brutal: no hearts, only totems
     pickups.push({
       type, x, y, vx: vx === undefined ? rand(-40, 40) * view.k : vx, vy: vy === undefined ? -120 * view.vs : vy,
       t: 0, bob: 0, ph: rand(TAU), r: 18 * view.k, dead: false,
@@ -3431,7 +3438,7 @@ const Game = (() => {
       case 'heart':
         debuffs.fatigue = 0;
         if (p.hp < p.maxHp) { p.hp += 1; label = '+1 HEART'; }
-        else if (p.maxHp < MAX_HEARTS) { p.maxHp += 1; p.hp += 1; label = 'MAX HEARTS UP!'; }
+        else if (p.maxHp < MAX_HEARTS && rules.extraHearts) { p.maxHp += 1; p.hp += 1; label = 'MAX HEARTS UP!'; }
         else label = '+' + addScore(500);
         break;
       case 'star':
@@ -3485,6 +3492,8 @@ const Game = (() => {
     return (1 + (n - 1) * 0.085 + Math.pow(Math.max(0, n - 10), 1.3) * 0.03) * diff.ehp;
   }
   function startWave(n) {
+    // update the checkpoint with whatever the player picked up after the boss fell
+    if (n > 1 && (n - 1) % 5 === 0) saveCheckpoint(n, false);
     wave.n = n;
     wave.cycle = Math.floor((n - 1) / 5);
     wave.boss = n % 5 === 0;
@@ -3659,14 +3668,27 @@ const Game = (() => {
     darkT = 0;
     debuffs.fatigue = 0;
   }
-  function start() {
+  /**
+   * Starts a run. opts.mode: 'arcade' (default) or 'hardcore' with opts.tier ('extreme' | 'insane' | 'brutal').
+   * opts.checkpoint: an Arcade checkpoint to continue from.
+   */
+  function start(opts = {}) {
     clearWorld();
     decor.length = 0;
-    diffKey = DIFF[Settings.get('difficulty')] ? Settings.get('difficulty') : 'normal';
+    const tier = opts.mode === 'hardcore' ? HARDCORE_TIERS.find((t) => t.id === opts.tier) || HARDCORE_TIERS[0] : null;
+    const cp = !tier && opts.checkpoint ? opts.checkpoint : null;
+    run = { mode: tier ? 'hardcore' : 'arcade', tier: tier ? tier.id : null };
+    // Hardcore: never more hearts than you start with; Brutal also has no heart drops and 1-heart totems
+    rules = tier
+      ? { extraHearts: false, heartDrops: tier.heartDrops, totemHearts: tier.totemHearts }
+      : { extraHearts: true, heartDrops: true, totemHearts: 3 };
+    const want = tier ? 'hard' : cp ? cp.diff : Settings.get('difficulty');
+    diffKey = DIFF[want] ? want : 'normal';
     diff = DIFF[diffKey];
-    const hearts = clamp(Math.round(Settings.get('hearts') || 5), 1, MAX_HEARTS);
-    // fewer hearts = bigger score bonus (1 heart x1.4, 10 hearts x0.75)
-    heartMul = hearts <= 5 ? 1 + (5 - hearts) * 0.1 : 1 - (hearts - 5) * 0.05;
+    const hearts = tier ? tier.hearts : clamp(Math.round(Settings.get('hearts') || 5), 1, MAX_HEARTS);
+    // fewer hearts = bigger score bonus (1 heart x1.4, 10 hearts x0.75); Hardcore tiers add their own bonus
+    heartMul = (hearts <= 5 ? 1 + (5 - hearts) * 0.1 : 1 - (hearts - 5) * 0.05) * (tier ? tier.bonus : 1);
+    hud.tier = run.tier;
     score = 0;
     resetCombo();
     nova = 50;
@@ -3688,7 +3710,8 @@ const Game = (() => {
     blastKills = 0;
     player = makePlayer(hearts);
     Object.assign(wave, { n: 0, cycle: 0, boss: false, state: 'clear', breakT: 1.3, spawned: 0, budget: 0, cleared: 0, timer: 0, hpMul: 1, spdMul: 1, fireMul: 1 });
-    setZone(0);
+    setZone(cp ? Math.floor((cp.wave - 1) / 5) % ZONES.length : 0);
+    if (cp) resumeCheckpoint(cp);
     bg.mix = 1;
     bg.warpT = 1.2;
     state = 'playing';
@@ -3698,13 +3721,41 @@ const Game = (() => {
     Sfx.music('game');
     lastT = performance.now();
     UI.onStart();
+    if (cp) UI.toast(`CHECKPOINT LOADED · WAVE ${cp.wave}`);
+    else if (tier) UI.toast(`HARDCORE · ${tier.name}`);
+  }
+  /** Arcade: remember the run right after a boss so it can be continued from the next wave. */
+  function saveCheckpoint(nextWave, announce) {
+    if (run.mode !== 'arcade' || !player) return;
+    const p = player;
+    Checkpoint.save({
+      v: 1, wave: nextWave, bossLevel, score: Math.floor(score), hp: p.hp, maxHp: p.maxHp, weapon: p.weapon, power: p.power,
+      totem: p.totem, nova, diff: diffKey, heartMul, runTime, stats: { ...stats }, seen: [...seen], date: Date.now(),
+    });
+    if (announce) UI.toast('✓ CHECKPOINT SAVED');
+  }
+  function resumeCheckpoint(cp) {
+    const p = player;
+    // a checkpoint always puts you back at full health
+    p.maxHp = p.hp = clamp(Math.round(cp.maxHp) || 5, 1, MAX_HEARTS);
+    p.weapon = clamp(cp.weapon || 1, 1, 5);
+    p.power = cp.power || 1;
+    p.totem = !!cp.totem;
+    heartMul = cp.heartMul || heartMul;
+    score = cp.score || 0;
+    nova = Math.max(50, cp.nova || 0);
+    bossLevel = cp.bossLevel || 0;
+    Object.assign(stats, cp.stats || {});
+    runTime = cp.runTime || 0;
+    for (const t of cp.seen || []) seen.add(t);
+    wave.n = cp.wave - 1;
   }
   function pause() {
     if (state !== 'playing') return;
     state = 'paused';
     Input.reset();
     Sfx.duck(true);
-    UI.showPause({ wave: wave.n, score: Math.floor(score), difficulty: diffKey });
+    UI.showPause({ wave: wave.n, score: Math.floor(score), difficulty: diffKey, mode: run.mode, tier: run.tier, hearts: player.maxHp });
   }
   function resume() {
     if (state !== 'paused') return;
@@ -3728,13 +3779,14 @@ const Game = (() => {
     const s = Math.floor(score);
     if (s >= 100000) Trophies.unlock('legend');
     const prevBest = Scores.best();
-    const entry = { score: s, wave: wave.n, kills: stats.kills, diff: diffKey, hearts: player.maxHp, date: Date.now() };
+    const entry = { score: s, wave: wave.n, kills: stats.kills, diff: diffKey, hearts: player.maxHp, mode: run.tier || 'arcade', date: Date.now() };
     const idx = Scores.submit(entry);
     UI.showGameOver({
       score: s, best: Math.max(prevBest, s), isBest: s > prevBest && s > 0, rankIndex: idx, entry,
       wave: wave.n, kills: stats.kills, maxCombo: stats.maxCombo,
       time: runTime, grazes: stats.grazes, bosses: stats.bosses, elites: stats.elites, top: Scores.top(5),
       trophies: Trophies.sessionUnlocks(), difficulty: diffKey,
+      mode: run.mode, tier: run.tier, checkpoint: run.mode === 'arcade' ? Checkpoint.get() : null,
     });
     Sfx.play('gameover');
     Sfx.music('menu');
@@ -3938,6 +3990,8 @@ const Game = (() => {
     dash() { if (state === 'playing') tryDash(null, null); },
     nova() { if (state === 'playing') useNova(); },
     get state() { return state; },
+    /** The current (or last) run: { mode: 'arcade' | 'hardcore', tier }. */
+    get run() { return { mode: run.mode, tier: run.tier }; },
     BUFF_MAX,
     /** Boss list for the How-to-play screen. */
     bossList() { return BK ? BK.ORDER.map((kind, i) => ({ kind, wave: (i + 1) * 5, ...BK.ALL[kind] })) : []; },
@@ -3972,7 +4026,7 @@ const Game = (() => {
       player() { return player && { x: player.x, y: player.y, hp: player.hp, maxHp: player.maxHp, weapon: player.weapon, power: player.power, alive: player.alive, totem: player.totem }; },
       info() {
         return {
-          state, botHits, enemies: enemies.length, bullets: bullets.length, ebullets: ebullets.length, hazards: hazards.length, parts: parts.length, wave: wave.n, hpMul: wave.hpMul, score, fps, nova,
+          state, botHits, run: { ...run }, diff: diffKey, pickups: pickups.map((q) => q.type), enemies: enemies.length, bullets: bullets.length, ebullets: ebullets.length, hazards: hazards.length, parts: parts.length, wave: wave.n, hpMul: wave.hpMul, score, fps, nova,
           dashes: stats && stats.dashes, novas: stats && stats.novas, bossLevel, boss: boss && { kind: boss.kind, mode: boss.mode, phase: boss.phase, hp: Math.round(boss.hp), maxHp: boss.maxHp, mark: boss.mark, title: boss.title, shield: Math.round(boss.shield), stun: +boss.stun.toFixed(2), lastStand: boss.lastStand, berserk: boss.berserk, fightT: Math.round(boss.fightT) },
           types: [...new Set(enemies.map((e) => e.type))],
         };

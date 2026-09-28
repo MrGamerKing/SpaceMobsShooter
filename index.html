@@ -100,9 +100,7 @@
         <button class="btn btn-primary" data-act="play" data-autofocus style="--i:0">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l12-7.5z"/></svg>PLAY
         </button>
-        <div class="seg seg-wide" data-set="difficulty" style="--i:1" aria-label="Difficulty">
-          <button data-val="easy">EASY</button><button data-val="normal">NORMAL</button><button data-val="hard">HARD</button>
-        </div>
+        <div id="menuModeLine" class="menu-mode-line" style="--i:1"></div>
         <div class="menu-row" style="--i:2">
           <button class="btn btn-skins" data-act="skins"><img id="menuSkin" src="player.png" alt="">SKINS</button>
           <button class="btn" data-act="how">HOW TO PLAY</button>
@@ -226,6 +224,80 @@
     </div>
   </section>
 
+  <!-- ============================== MODE SELECT ============================== -->
+  <section id="scrModes" class="screen overlay">
+    <div class="panel panel-wide">
+      <div class="panel-head">
+        <button class="icon-btn" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <h2>SELECT MODE</h2>
+      </div>
+      <div class="panel-body">
+        <div class="mode-grid">
+          <button class="mode-card arcade" data-act="arcade" data-autofocus>
+            <span class="mode-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4"/><path d="M5 4h11l-2 4 2 4H5" fill="currentColor" fill-opacity=".25"/></svg></span>
+            <span class="mode-name">ARCADE</span>
+            <span class="mode-desc">A checkpoint is saved after every boss. Continue your run any time, or start a new game.</span>
+            <span class="mode-tags"><i>CHECKPOINTS</i><i>ANY DIFFICULTY</i><i>1–10 HEARTS</i></span>
+            <span id="modeArcadeFoot" class="mode-foot">NO CHECKPOINT YET</span>
+          </button>
+          <button class="mode-card hardcore" data-act="hardcore">
+            <span class="mode-ic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C7 2 3.5 5.6 3.5 10.2c0 2.7 1.2 4.6 3 5.8V19a1 1 0 0 0 1 1h1.5v-2h2v2h2v-2h2v2h1.5a1 1 0 0 0 1-1v-3c1.8-1.2 3-3.1 3-5.8C20.5 5.6 17 2 12 2zm-3.6 11a2.1 2.1 0 1 1 0-4.2 2.1 2.1 0 0 1 0 4.2zm7.2 0a2.1 2.1 0 1 1 0-4.2 2.1 2.1 0 0 1 0 4.2z"/></svg></span>
+            <span class="mode-name">HARDCORE</span>
+            <span class="mode-desc">No saves: die and you start again from wave 1. Always on HARD, and you can never gain extra hearts.</span>
+            <span class="mode-tags"><i>NO SAVES</i><i>HARD ONLY</i><i>BONUS SCORE</i></span>
+            <span class="mode-foot">3 CHALLENGES · EXTREME · INSANE · BRUTAL</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== ARCADE ============================== -->
+  <section id="scrArcade" class="screen overlay">
+    <div class="panel">
+      <div class="panel-head">
+        <button class="icon-btn" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <h2>ARCADE</h2>
+      </div>
+      <div class="panel-body">
+        <div id="cpCard" class="cp-card">
+          <div class="cp-head"><b>⚑ CHECKPOINT</b><span id="cpDiff" class="diff-tag">NORMAL</span></div>
+          <div id="cpStats" class="cp-stats"></div>
+          <p id="cpNext" class="cp-next"></p>
+          <button class="btn btn-primary" data-act="continue" data-autofocus>
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l12-7.5z"/></svg>CONTINUE
+          </button>
+        </div>
+        <p id="cpNone" class="cp-none">No checkpoint yet. Beat a boss and your run is saved automatically.</p>
+        <div class="set-group">
+          <h4>NEW GAME</h4>
+          <div class="row"><span class="lbl">Difficulty<small>Mob health, bullet speed, boss strength and score</small></span>
+            <span class="seg" data-set="difficulty"><button data-val="easy">EASY</button><button data-val="normal">NORMAL</button><button data-val="hard">HARD</button></span></div>
+          <div class="row"><span class="lbl">Hearts<small>Fewer hearts = bigger score bonus</small></span><span class="row-ctl"><input type="range" min="1" max="10" step="1" data-set="hearts" aria-label="Starting hearts"><output data-out="hearts"></output></span></div>
+        </div>
+        <button id="btnNewGame" class="btn btn-wide" data-act="newgame">NEW GAME</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== HARDCORE ============================== -->
+  <section id="scrHardcore" class="screen overlay">
+    <div class="panel">
+      <div class="panel-head">
+        <button class="icon-btn" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <h2 class="hc-title">HARDCORE</h2>
+      </div>
+      <div class="panel-body">
+        <ul class="hc-rules">
+          <li>Difficulty is locked to <b>HARD</b></li>
+          <li><b>No checkpoints.</b> If you die, you start again from wave 1</li>
+          <li>You can <b>never gain extra hearts</b> beyond your starting hearts</li>
+        </ul>
+        <div id="tierList" class="tier-list"></div>
+      </div>
+    </div>
+  </section>
+
   <!-- ============================== SKINS ============================== -->
   <section id="scrSkins" class="screen overlay">
     <div class="panel">
@@ -258,8 +330,8 @@
       <div class="panel-body">
         <div class="set-group">
           <h4>GAMEPLAY</h4>
-          <div class="row"><span class="lbl">Hearts<small>How many lives you start with. Fewer hearts = bigger score bonus</small></span><span class="row-ctl"><input type="range" min="1" max="10" step="1" data-set="hearts" aria-label="Starting hearts"><output data-out="hearts"></output></span></div>
-          <div class="row"><span class="lbl">Difficulty<small>Mob health, bullet speed and score</small></span>
+          <div class="row"><span class="lbl">Hearts<small>Arcade: how many lives you start with. Fewer hearts = bigger score bonus</small></span><span class="row-ctl"><input type="range" min="1" max="10" step="1" data-set="hearts" aria-label="Starting hearts"><output data-out="hearts"></output></span></div>
+          <div class="row"><span class="lbl">Difficulty<small>Arcade only. Hardcore is always Hard</small></span>
             <span class="seg" data-set="difficulty"><button data-val="easy">EASY</button><button data-val="normal">NORMAL</button><button data-val="hard">HARD</button></span></div>
           <div class="row"><span class="lbl">Auto-fire<small>Shoot automatically — focus on dodging</small></span><button class="toggle" role="switch" data-set="autoFire" aria-label="Auto-fire"></button></div>
           <div class="row"><span class="lbl">Screen shake</span><button class="toggle" role="switch" data-set="shake" aria-label="Screen shake"></button></div>
@@ -334,7 +406,7 @@
           <button class="btn btn-primary" data-act="resume" data-autofocus>
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l12-7.5z"/></svg>RESUME
           </button>
-          <button class="btn" data-act="restart">RESTART</button>
+          <button id="btnRestart" class="btn" data-act="restart">RESTART</button>
           <button class="btn" data-act="settings">SETTINGS</button>
           <button class="btn btn-ghost" data-act="menu">MAIN MENU</button>
         </div>
@@ -366,7 +438,7 @@
         <ol id="overBoard" class="board"></ol>
       </div>
       <div class="panel-foot">
-        <button class="btn btn-primary" data-act="restart" data-autofocus>PLAY AGAIN</button>
+        <button id="overPrimary" class="btn btn-primary" data-act="restart" data-autofocus>PLAY AGAIN</button>
         <button class="btn" data-act="menu">MAIN MENU</button>
       </div>
     </div>

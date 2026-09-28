@@ -23,6 +23,9 @@ const Trophies = (() => {
     { id: 'elite', name: 'ELITE HUNTER', desc: 'Defeat 25 elite mobs (all runs)', icon: 'blaze.png' },
     { id: 'slimes', name: 'SLIME SQUASHER', desc: 'Pop 60 slimes (all runs)', icon: 'slime.png' },
     { id: 'collector', name: 'COLLECTOR', desc: 'Collect all 11 power-up types', icon: 'allay.png' },
+    { id: 'extreme', name: 'EXTREME', desc: 'Defeat a boss in Hardcore Extreme', icon: 'magma.png' },
+    { id: 'insane', name: 'INSANITY', desc: 'Defeat a boss in Hardcore Insane', icon: 'illusioner.png' },
+    { id: 'brutal', name: 'BRUTAL LEGEND', desc: 'Defeat a boss in Hardcore Brutal (one heart!)', icon: 'wskull.png' },
   ];
   const COUNTERS = { elites: ['elite', 25], slimes: ['slimes', 60] };
   const ALL_PICKUPS = 11;
