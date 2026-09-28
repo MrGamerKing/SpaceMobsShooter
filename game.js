@@ -187,8 +187,6 @@ const Game = (() => {
   ];
   const WEAPON_KILLS = [0, 18, 45, 85, 140]; // kills needed before the next weapon star drops
   const COMBO_TIME = 2.6;
-  const DASH_CD = 0.9;
-  const DASH_TIME = 0.16;
 
   // ================================================================ assets
   const SRC = {
@@ -1219,7 +1217,7 @@ const Game = (() => {
         p.y = ny;
       } else {
         // analog steering (keys / stick / pad) with acceleration + friction
-        const ms = maxSpeed() * (buffs.overdrive > 0 ? 1.25 : 1) * (tired ? 0.55 : 1);
+        const ms = maxSpeed() * (buffs.overdrive > 0 ? 1.25 : 1) * (tired ? 0.55 : 1) * (p.auraK === 'echo' ? 1.4 : 1);
         const ix = Input.x;
         const iy = Input.y;
         p.vx = damp(p.vx, ix * ms, ix ? 14 : 10, dt);
@@ -1336,9 +1334,33 @@ const Game = (() => {
     p.x += clamp(botX - p.x, -step, step);
     p.y += clamp(botY - p.y, -step, step);
   }
+  // ================================================================ character abilities
+  // Every skin has a movement ability (SHIFT / dash button) and a special attack (B / special button).
+  // Names, descriptions and cooldowns live in skins.js; this is how they behave.
+  // t = dash time · sp = dash speed · hit = damage to mobs you fly through · aura = seconds of protection
+  const MOVE_FX = {
+    dash: { t: 0.16, sp: 1500 },
+    rocket: { t: 0.3, sp: 1650, hit: 7 },
+    pearl: { tele: 210 },
+    gust: { t: 0.16, sp: 1400, clear: 175 },
+    spirit: { t: 0.16, sp: 1400 },
+    buzz: { t: 0.1, sp: 1300 },
+    roll: { t: 0.24, sp: 1200, reflect: 64 },
+    echo: { aura: 1.1 },
+    flame: { t: 0.18, sp: 1500 },
+    puff: { aura: 1.6 },
+    dive: { t: 0.2, sp: 1750, hit: 10 },
+  };
+  const MOVE_COL = { dash: C.cyan, rocket: C.gold, pearl: C.purple, gust: C.purple, spirit: C.cyan, buzz: C.gold, roll: C.pink, echo: C.purple, flame: C.orange, puff: C.white, dive: C.red };
+  const MOVE_IDS = Object.keys(MOVE_FX);
+  const moveOf = (p) => (p && p.sk && p.sk.move) || { id: 'dash', name: 'DASH', cd: 0.9 };
+  const ultOf = (p) => (p && p.sk && p.sk.ult) || { id: 'nova', name: 'NOVA' };
+
+  /** Your movement ability (the keyboard, button, flick or gamepad asked for it). */
   function tryDash(fx, fy) {
     const p = me;
     if (!p || !p.alive || p.intro > 0 || p.dashCd > 0 || p.dashT > 0 || netMenu) return;
+    const mv = moveOf(p);
     let dx = fx;
     let dy = fy;
     if (dx == null) {
@@ -1349,26 +1371,129 @@ const Game = (() => {
     const m = Math.hypot(dx, dy) || 1;
     dx /= m;
     dy /= m;
-    const sp = 1500 * view.k;
-    p.dvx = dx * sp;
-    p.dvy = dy * sp;
-    p.dashT = DASH_TIME;
-    p.dashCd = DASH_CD;
+    p.dashCd = mv.cd;
     p.knockT = 0;
-    p.invuln = Math.max(p.invuln, DASH_TIME + 0.12);
-    p.ghostT = 0;
     stats.dashes += 1;
+    moveMotion(p, mv.id, dx, dy);
+    moveEffects(p, mv.id);
+    Sfx.play(mv.id === 'pearl' ? 'teleport' : mv.id === 'puff' ? 'shield' : mv.id === 'echo' ? 'stare' : 'dash');
+    Input.vibrate(12);
+    // the host needs to know (you can't be hit mid-move, and it applies the move's damage)
+    if (net && net.role === 'guest') net.send({ t: 'dash', dx: r2(dx), dy: r2(dy) });
+  }
+  /** Moves your own ship (dash, teleport or protective aura). */
+  function moveMotion(p, id, dx, dy) {
+    const f = MOVE_FX[id] || MOVE_FX.dash;
+    const k = view.k;
+    const c = MOVE_COL[id] || C.cyan;
+    p.dashHit = new Set();
+    if (f.tele) {
+      // ender pearl: pop out here, pop in there
+      const ox = p.x;
+      const oy = p.y;
+      const b = bounds();
+      p.x = clamp(p.x + dx * f.tele * k, b.minX, b.maxX);
+      p.y = clamp(p.y + dy * f.tele * k, b.minY, b.maxY);
+      p.invuln = Math.max(p.invuln, 0.35);
+      for (const [x, y] of [[ox, oy], [p.x, p.y]]) {
+        for (let i = 0; i < (hiQ ? 14 : 6); i++) { const a = rand(TAU); const s = rand(60, 260) * k; P(x, y, Math.cos(a) * s, Math.sin(a) * s, rand(0.3, 0.6), rand(5, 9) * k, C.purple, GLOW, 3); }
+      }
+      P(p.x, p.y, 0, 0, 0.35, 70 * k, C.purple, RING);
+      Input.rebase();
+      return;
+    }
+    if (f.aura) {
+      p.auraK = id;
+      p.auraT = f.aura;
+      p.invuln = Math.max(p.invuln, f.aura);
+      P(p.x, p.y, 0, 0, 0.4, 90 * k, c, RING);
+      return;
+    }
+    p.dashKind = id;
+    p.dvx = dx * f.sp * k;
+    p.dvy = dy * f.sp * k;
+    p.dashT = f.t;
+    p.invuln = Math.max(p.invuln, f.t + 0.12);
+    p.ghostT = 0;
     const back = Math.atan2(-dy, -dx);
     for (let i = 0; i < (hiQ ? 14 : 6); i++) {
       const a = back + rand(-0.6, 0.6);
-      const s = rand(150, 420) * view.k;
-      P(p.x, p.y, Math.cos(a) * s, Math.sin(a) * s, rand(0.2, 0.4), rand(1.5, 3) * view.k, C.cyan, SPARK, 4);
+      const s = rand(150, 420) * k;
+      P(p.x, p.y, Math.cos(a) * s, Math.sin(a) * s, rand(0.2, 0.4), rand(1.5, 3) * k, c, SPARK, 4);
     }
-    P(p.x, p.y, 0, 0, 0.3, 50 * view.k, C.cyan, RING);
-    Sfx.play('dash');
-    Input.vibrate(12);
-    // the host needs to know: you can't be hit mid-dash
-    if (net && net.role === 'guest') net.send({ t: 'dash' });
+    P(p.x, p.y, 0, 0, 0.3, 50 * k, c, RING);
+  }
+  /** What a move does to the world at the moment it's used (runs where the game is simulated). */
+  function moveEffects(p, id) {
+    if (net && net.role === 'guest') return;
+    const k = view.k;
+    if (id === 'gust') {
+      // wing gust blows every enemy bullet around you away
+      const R = MOVE_FX.gust.clear * k;
+      for (const b of ebullets) {
+        if (b.dead || dist2(b.x, b.y, p.x, p.y) > R * R) continue;
+        if (b.hp) popShootable(b, true);
+        else { b.dead = true; spark(b.x, b.y, b.c, 3); }
+      }
+      P(p.x, p.y, 0, 0, 0.45, R, C.purple, RING);
+      sfx('sonic');
+    } else if (id === 'spirit') {
+      buffs.magnet = Math.max(buffs.magnet, 2.5);
+    } else if (id === 'echo') {
+      darkT = 0; // bats see in the dark
+    }
+  }
+  /** Every frame, for every ship: move timers, trails, and the damage some moves do (host / single player). */
+  function moveTick(p, dt) {
+    if (p.auraT > 0) { p.auraT -= dt; if (p.auraT <= 0) { p.auraT = 0; p.auraK = ''; } }
+    const id = p.dashT > 0 ? p.dashKind : '';
+    if (!id || !p.alive) return;
+    const k = view.k;
+    // trails everyone can see
+    if (id === 'rocket' && Math.random() < dt * 60) P(p.x + rand(-6, 6) * k, p.y + p.h * 0.3, rand(-60, 60) * k, rand(60, 160) * k, rand(0.3, 0.6), rand(2, 3.5) * k, pick([C.gold, C.red, C.cyan, C.pink, C.green]), SPARK, 2);
+    if (id === 'flame' && Math.random() < dt * 70) P(p.x + rand(-10, 10) * k, p.y + rand(-6, 10) * k, rand(-20, 20) * k, -rand(20, 70) * k, rand(1.2, 2.2), rand(9, 15) * k, pick([C.orange, C.gold, C.red]), GLOW, 1.5);
+    if (id === 'dive' && Math.random() < dt * 50) P(p.x + rand(-p.w, p.w) * 0.4, p.y + rand(-p.h, p.h) * 0.4, 0, 0, 0.3, rand(2, 3) * k, C.red, SPARK, 1);
+    if (id === 'roll' && Math.random() < dt * 50) P(p.x, p.y, rand(-200, 200) * k, rand(-200, 200) * k, 0.3, rand(4, 7) * k, pick([C.red, C.gold, C.blue, C.green]), GLOW, 3);
+    if (net && net.role === 'guest') return;
+    const f = MOVE_FX[id];
+    if (f.hit) {
+      // firework boost / shadow dive: every mob you fly through gets hit once
+      for (const e of enemies) {
+        if (e.dead || p.dashHit.has(e) || e.mode === 'dying' || e.mode === 'enter' || !hits(e, p.x, p.y, p.w * 0.45)) continue;
+        p.dashHit.add(e);
+        hurtEnemy(e, f.hit * p.power, e.x, e.y, 'dash');
+        spark(e.x, e.y, id === 'dive' ? C.red : C.gold, 6);
+      }
+    }
+    if (f.reflect) {
+      // barrel roll: bullets you touch turn around and hunt the mobs
+      const R = f.reflect * k;
+      for (const b of ebullets) {
+        if (b.dead || b.hp || dist2(b.x, b.y, p.x, p.y) > R * R) continue;
+        b.dead = true;
+        const sp = 820 * view.vs;
+        bullets.push({ x: b.x, y: b.y, vx: -b.vx * 0.5, vy: -Math.abs(b.vy) - sp * 0.5, r: 7 * k, s: 15 * k, orb: C.gold, col: C.gold, dmg: 3 * p.power, pierce: 0, rot: 0, spin: 0, life: 1.6, homing: true, turn: 9, speed: sp, trail: 0, src: 'bullet', last: null, dead: false });
+      }
+    }
+    if (id === 'flame') {
+      p.trailT = (p.trailT || 0) - dt;
+      if (p.trailT <= 0) { p.trailT = 0.03; fires.push({ x: p.x, y: p.y + p.h * 0.15, r: 30 * k, life: 2.2, tick: 0, power: p.power }); }
+    }
+  }
+  /** Flame-dash fire trails: burn mobs that touch them (host / single player). */
+  const fires = [];
+  function updateFires(dt) {
+    const k = view.k;
+    for (const f of fires) {
+      f.life -= dt;
+      f.tick -= dt;
+      if (hiQ && Math.random() < dt * 6) P(f.x + rand(-8, 8) * k, f.y, 0, -rand(30, 70) * k, rand(0.4, 0.7), rand(8, 13) * k, pick([C.orange, C.gold]), GLOW, 1);
+      if (f.tick <= 0) {
+        f.tick = 0.25;
+        for (const e of enemies) if (!e.dead && e.mode !== 'dying' && e.mode !== 'enter' && hits(e, f.x, f.y, f.r)) hurtEnemy(e, 2.5 * f.power, e.x, e.y + e.h * 0.3, 'dash');
+      }
+    }
+    for (let i = fires.length - 1; i >= 0; i--) if (fires[i].life <= 0) fires.splice(i, 1);
   }
   function knockPlayer(x, y, force) {
     const p = player;
@@ -1386,7 +1511,11 @@ const Game = (() => {
     Input.vibrate(40);
   }
 
-  /** The Nova meter is shared by the whole team in co-op: anyone can fire it once it's full. */
+  /**
+   * The special attack (B). Each skin has its own; they all use the one special meter, which fills from
+   * your kills and grazes (in co-op the team shares it). Kills made by a special never refill it, and a
+   * special can only take a small slice of a boss's health.
+   */
   function useNova(p = me) {
     if (state !== 'playing' || !p || !p.alive || p.intro > 0) return;
     if (net && net.role === 'guest') {
@@ -1398,14 +1527,208 @@ const Game = (() => {
     nova = 0;
     novaReadyShown = false;
     stats.novas += 1;
-    startNova(p.x, p.y, p.power);
     p.invuln = Math.max(p.invuln, 1.2);
-    P(p.x, p.y, 0, 0, 0.5, 160 * view.k, C.pink, GLOW);
-    sfx('nova');
-    shake(0.9);
-    slowmo(0.45, 0.35);
-    U.flash('white');
+    const u = ultOf(p);
+    const cid = ++castSeq;
+    castUlt(p, u.id, cid);
+    fwd('U', p.pid, u.id, cid);
+    if (u.id !== 'nova') popup(p.x, p.y - p.h * 1.1, `${u.name}!`, p.sk ? p.sk.glow : '#ff6ad5', 12, 1.3);
+    shake(u.id === 'nova' || u.id === 'mega' ? 0.9 : 0.5);
+    slowmo(0.45, u.id === 'nova' ? 0.35 : 0.55);
+    if (u.id === 'nova') U.flash('white');
     if (p === me) Input.vibrate([30, 40, 90]);
+  }
+  let castSeq = 0;
+  let ultCtx = 0;  // id of the special doing damage right now (0 = none)
+  const ULT_SFX = { nova: 'nova', tnt: 'fuse', arrows: 'cast', breath: 'beam', choir: 'totem', swarm: 'vex', rainbow: 'levelup', screech: 'shriek', inferno: 'blaze', mega: 'ghast', bloodmoon: 'darkness' };
+  /** A special can take at most 5% of a boss's health, however much it hits. */
+  function capUlt(e, dmg, id) {
+    if (e.ultId !== id) { e.ultId = id; e.ultTaken = 0; }
+    const d = Math.min(dmg, Math.max(0, e.maxHp * 0.05 - e.ultTaken));
+    e.ultTaken += d;
+    return d;
+  }
+  /** Hit every mob on screen (or within r of x, y) as part of special `id`. */
+  function ultHitAll(id, dmg, x, y, r) {
+    ultCtx = id;
+    novaLock += 1;
+    for (const e of enemies) {
+      if (e.dead || e.mode === 'dying' || e.mode === 'enter' || e.y < -e.h || e.y > view.h + e.h) continue;
+      if (r && dist2(e.x, e.y, x, y) > (r + e.r) * (r + e.r)) continue;
+      hurtEnemy(e, dmg, e.x, e.y, 'ult');
+    }
+    novaLock -= 1;
+    ultCtx = 0;
+  }
+  /** A special's projectile: player bullet with a sprite, optional gravity and an explosion. */
+  function ultShot(p, cid, o) {
+    const k = view.k;
+    const s = (o.s || 18) * k;
+    bullets.push({
+      x: o.x ?? p.x, y: o.y ?? p.y - p.h * 0.3, vx: o.vx || 0, vy: o.vy || 0, r: (o.r || s / (2.4 * k)) * k, s,
+      c: o.img ? sprite(o.img, s, s) : null, orb: o.orb || null, col: o.col || C.white, dmg: (o.dmg || 0) * p.power, pierce: o.pierce || 0,
+      rot: rand(TAU), spin: o.spin ?? rand(-8, 8), life: o.life || 2, homing: !!o.homing, turn: o.turn || 8, speed: (o.speed || 900) * view.vs,
+      trail: 0, src: 'ult', uid: cid, boom: o.boom ? { ...o.boom, dmg: o.boom.dmg * p.power } : null, grav: (o.grav || 0) * k, top: !!o.top, last: null, dead: false,
+    });
+  }
+  /** Starts special `id` for ship p. Runs on the host (for real) and on guests (just the visible part). */
+  function castUlt(p, id, cid) {
+    const real = !(net && net.role === 'guest');
+    const k = view.k;
+    const vs = view.vs;
+    if (real) sfx(ULT_SFX[id] || 'nova');
+    switch (id) {
+      case 'nova':
+        if (real) { startNova(p.x, p.y, p.power); P(p.x, p.y, 0, 0, 0.5, 160 * k, C.pink, GLOW); }
+        break;
+      case 'tnt': {
+        // 8 lit TNT blocks lobbed onto the nearest mobs (or up the screen if there are none); each blows up where it lands
+        const targets = enemies.filter((e) => !e.dead && e.mode !== 'dying' && e.y > 0 && e.y < view.h).sort((a, b) => dist2(a.x, a.y, p.x, p.y) - dist2(b.x, b.y, p.x, p.y));
+        const g = 900 * k;
+        for (let i = 0; i < 8; i++) {
+          const T = 0.55 + (i % 4) * 0.07;
+          const e = targets.length ? targets[i % Math.min(targets.length, 8)] : null;
+          const tx = e ? e.x + (i >= targets.length ? rand(-60, 60) * k : 0) : p.x + (-0.85 + (i / 7) * 1.7) * 340 * k;
+          const ty = e ? e.y : Math.max(view.h * 0.12, p.y - 420 * k);
+          ultShot(p, cid, { img: 'tnt', s: 30, r: 13, x: p.x, y: p.y - p.h * 0.3, vx: (tx - p.x) / T, vy: (ty - (p.y - p.h * 0.3) - 0.5 * g * T * T) / T, grav: g / k, life: T, col: C.orange, boom: { R: 125, dmg: 16, pal: PAL.tnt, gc: C.orange } });
+        }
+        break;
+      }
+      case 'mega':
+        // one huge fireball that drifts toward the nearest mob and explodes on contact
+        ultShot(p, cid, { img: 'b3', s: 86, r: 36, vy: -560 * vs, spin: 3, life: 1.8, homing: true, turn: 2.2, speed: 600, col: C.orange, boom: { R: 270, dmg: 46, pal: PAL.fire, gc: C.orange } });
+        break;
+      case 'swarm':
+        for (let i = 0; i < 16; i++) {
+          const a = (i / 16) * TAU;
+          ultShot(p, cid, { img: 'skin_bee', s: 24, r: 10, vx: Math.cos(a) * 380 * k, vy: Math.sin(a) * 380 * k - 200 * vs, homing: true, turn: 6, speed: 720, dmg: 5, pierce: 1, life: 3.2, spin: 0, col: C.gold });
+        }
+        break;
+      case 'arrows':
+      case 'inferno':
+      case 'breath':
+      case 'screech':
+      case 'bloodmoon':
+        // these play out over a few seconds (see ultTick)
+        p.ultFx = { k: id, cid, t: { arrows: 0.9, inferno: 0.75, breath: 3, screech: 0.95, bloodmoon: 5 }[id], cd: 0, n: 0 };
+        if (real && id === 'bloodmoon') buffs.timewarp = Math.max(buffs.timewarp, 5);
+        break;
+      case 'choir':
+        if (!real) break;
+        // heal the whole team, shield everyone and call the allay drones
+        for (const q of players) {
+          if (!q.alive) continue;
+          if (q.hp < q.maxHp) { q.hp += 1; heartPop(q, 1); }
+          P(q.x, q.y, 0, 0, 0.7, 150 * k, C.cyan, RING);
+          burst(q.x, q.y, C.cyan, hiQ ? 14 : 6, 220);
+        }
+        buffs.shield = Math.max(buffs.shield, 4);
+        if (buffs.drones <= 0) resetDrones(p);
+        buffs.drones = Math.max(buffs.drones, 10);
+        droneUlt = cid; // the choir's drones are part of the special: their kills don't refill the meter
+        break;
+      case 'rainbow': {
+        if (!real) break;
+        // every enemy bullet turns into points, and every mob takes a hit
+        let n = 0;
+        for (const b of ebullets) {
+          if (b.dead) continue;
+          b.dead = true;
+          n += 1;
+          if (hiQ && n % 2 === 0) P(b.x, b.y, 0, -60 * k, 0.5, 10 * k, pick([C.red, C.gold, C.green, C.cyan, C.purple]), GLOW);
+        }
+        if (n) popup(p.x, p.y - p.h * 1.6, `+${fmt(addScore(n * 10))}`, '#ffe066', 11, 1.2);
+        ultHitAll(cid, 14 * p.power);
+        [C.red, C.orange, C.gold, C.green, C.cyan, C.purple].forEach((c, i) => P(p.x, p.y, 0, 0, 0.7 + i * 0.08, (260 + i * 60) * k, c, RING));
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  /** Specials that play out over time: volleys, breath, sonar pulses, the blood moon. */
+  function ultTick(p, dt) {
+    const u = p.ultFx;
+    if (!u) return;
+    if (!p.alive) { p.ultFx = null; return; }
+    const real = !(net && net.role === 'guest');
+    const k = view.k;
+    u.t -= dt;
+    u.cd -= dt;
+    switch (u.k) {
+      case 'arrows':
+        // 3 waves of 10 enchanted arrows
+        if (u.cd <= 0 && u.n < 3) {
+          u.cd = 0.3;
+          u.n += 1;
+          for (let i = 0; i < 10; i++) {
+            const a = -1.1 + (i / 9) * 2.2;
+            ultShot(p, u.cid, { orb: C.purple, s: 16, r: 7, vx: Math.sin(a) * 700 * k, vy: -Math.cos(a) * 700 * view.vs, homing: true, turn: 8, speed: 980, dmg: 4, life: 2.2, spin: 0, col: C.purple });
+          }
+          if (real) sfx('missile');
+        }
+        break;
+      case 'inferno':
+        // 3 rings of fireballs
+        if (u.cd <= 0 && u.n < 3) {
+          u.cd = 0.25;
+          u.n += 1;
+          const off = u.n * 0.35;
+          for (let i = 0; i < 18; i++) {
+            const a = off + (i / 18) * TAU;
+            ultShot(p, u.cid, { img: 'b2', s: 26, r: 10, vx: Math.cos(a) * 640 * k, vy: Math.sin(a) * 640 * k, dmg: 4.5, pierce: 1, life: 1.6, spin: 10, col: C.orange });
+          }
+          if (real) sfx('blaze');
+        }
+        break;
+      case 'breath':
+        // a column of dragon fire straight up from the ship
+        if (Math.random() < dt * (hiQ ? 60 : 25)) P(p.x + rand(-30, 30) * k, rand(0, p.y - p.h * 0.5), rand(-30, 30) * k, -rand(80, 200) * k, rand(0.3, 0.6), rand(10, 18) * k, pick([C.purple, C.pink]), GLOW, 2);
+        if (real && u.cd <= 0) {
+          u.cd = 0.1;
+          const W = 58 * k;
+          ultCtx = u.cid;
+          novaLock += 1;
+          for (const e of enemies) {
+            if (e.dead || e.mode === 'dying' || e.mode === 'enter' || e.y > p.y || Math.abs(e.x - p.x) > W + e.w * 0.3) continue;
+            hurtEnemy(e, 3.2 * p.power, e.x, e.y + e.h * 0.3, 'ult');
+          }
+          novaLock -= 1;
+          ultCtx = 0;
+          for (const b of ebullets) if (!b.dead && b.y < p.y && Math.abs(b.x - p.x) < W) { b.dead = true; spark(b.x, b.y, C.purple, 2); }
+        }
+        break;
+      case 'screech':
+        // three sonar rings, 0.3s apart
+        if (real && u.cd <= 0 && u.n < 3) {
+          u.cd = 0.3;
+          u.n += 1;
+          const R = 320 * k;
+          P(p.x, p.y, 0, 0, 0.55, R, C.gold, RING);
+          P(p.x, p.y, 0, 0, 0.45, R * 0.8, C.white, RING);
+          ultHitAll(u.cid, 14 * p.power, p.x, p.y, R);
+          for (const e of enemies) if (!e.dead && !e.T.boss && !e.T.persist && dist2(e.x, e.y, p.x, p.y) < R * R) e.y -= 45 * k;
+          for (const b of ebullets) if (!b.dead && dist2(b.x, b.y, p.x, p.y) < R * R) { if (b.hp) popShootable(b, true); else { b.dead = true; spark(b.x, b.y, C.gold, 2); } }
+          shake(0.3);
+          sfx('sonic');
+        }
+        break;
+      case 'bloodmoon':
+        // every mob on screen bleeds for 5 seconds
+        if (real && u.cd <= 0) { u.cd = 0.5; ultHitAll(u.cid, 5 * p.power); }
+        break;
+      default:
+        break;
+    }
+    if (u.t <= 0) p.ultFx = null;
+  }
+  function boomShot(b) {
+    const o = b.boom;
+    ultCtx = b.uid || 0;
+    novaLock += 1;
+    blast(b.x, b.y, o.R * view.k, o.dmg, o.pal, o.gc, true, '', 0);
+    novaLock -= 1;
+    ultCtx = 0;
   }
   function startNova(x, y, power = me ? me.power : 1) {
     novaFx = { id: ++novaId, x, y, r: 0, max: Math.hypot(view.w, view.h) * 1.05, power };
@@ -1574,6 +1897,7 @@ const Game = (() => {
   const teamPower = () => players.reduce((m, p) => (p.alive ? Math.max(m, p.power) : m), 1);
   /** Allay drones follow whoever picked them up (or any teammate still flying). */
   let droneOwner = null;
+  let droneUlt = 0; // set while the drones were called by the Allay Choir special
   const droneHost = () => (droneOwner && droneOwner.alive && players.includes(droneOwner) ? droneOwner : alivePlayers()[0] || null);
   function resetDrones(p = player) {
     droneOwner = p;
@@ -1597,7 +1921,7 @@ const Game = (() => {
         if (t) {
           const ang = Math.atan2(t.y - d.y, t.x - d.x);
           const sp = 760 * view.vs;
-          bullets.push({ x: d.x, y: d.y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, r: 7 * k, s: 14 * k, orb: C.cyan, col: C.cyan, dmg: o.power, pierce: 0, rot: 0, spin: 0, life: 1.6, homing: true, turn: 9, speed: 860 * view.vs, trail: 0, src: 'missile', last: null, dead: false });
+          bullets.push({ x: d.x, y: d.y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, r: 7 * k, s: 14 * k, orb: C.cyan, col: C.cyan, dmg: o.power, pierce: 0, rot: 0, spin: 0, life: 1.6, homing: true, turn: 9, speed: 860 * view.vs, trail: 0, src: droneUlt ? 'ult' : 'missile', uid: droneUlt, last: null, dead: false });
         }
       }
       if (hiQ && Math.random() < dt * 12) P(d.x, d.y, rand(-20, 20) * k, rand(20, 60) * k, 0.4, 6 * k, C.cyan, GLOW, 2);
@@ -1630,11 +1954,52 @@ const Game = (() => {
       blit(sprite(g.key, g.w, g.h, 'cyan'), g.x, g.y, g.w, g.h, g.rot);
     }
     ctx.globalAlpha = 1;
+    for (const p of players) if (p.alive && p.ultFx && p.ultFx.k === 'breath') drawBreath(p);
     for (const p of players) if (p !== me) drawShip(p);
     if (me) drawShip(me); // your own ship on top
     drawDrones();
     if (players.length > 1) drawTags();
     drawHeartFx();
+  }
+  /** Dragon Breath: a column of purple fire from the ship to the top of the screen. */
+  function drawBreath(p) {
+    const k = view.k;
+    const u = p.ultFx;
+    const fade = Math.min(1, u.t / 0.3, (3 - u.t) / 0.2 + 0.2);
+    const W = 58 * k * (1 + Math.sin(time * 30) * 0.06);
+    const top = -10;
+    const bot = p.y - p.h * 0.45;
+    world();
+    ctx.globalCompositeOperation = 'lighter';
+    const g = ctx.createLinearGradient(p.x - W, 0, p.x + W, 0);
+    g.addColorStop(0, 'rgba(163,58,214,0)');
+    g.addColorStop(0.3, `rgba(192,96,255,${0.45 * fade})`);
+    g.addColorStop(0.5, `rgba(255,220,255,${0.9 * fade})`);
+    g.addColorStop(0.7, `rgba(192,96,255,${0.45 * fade})`);
+    g.addColorStop(1, 'rgba(163,58,214,0)');
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = g;
+    ctx.fillRect(p.x - W, top, W * 2, bot - top);
+    glow(C.purple, p.x, bot, W * 1.6, 0.8 * fade);
+    ctx.globalCompositeOperation = 'source-over';
+  }
+  /** Blood Moon: the sky turns red while any ship's blood moon is up. */
+  function drawBloodMoon() {
+    const on = players.find((p) => p.ultFx && p.ultFx.k === 'bloodmoon');
+    if (!on) return;
+    const a = Math.min(1, on.ultFx.t / 0.6, (5 - on.ultFx.t) / 0.4);
+    base();
+    ctx.globalCompositeOperation = 'source-over';
+    const g = ctx.createRadialGradient(view.w / 2, view.h * 0.45, Math.min(view.w, view.h) * 0.2, view.w / 2, view.h * 0.45, Math.max(view.w, view.h) * 0.75);
+    g.addColorStop(0, 'rgba(120,0,20,0)');
+    g.addColorStop(1, `rgba(150,0,25,${0.45 * a})`);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, view.w, view.h);
+    ctx.globalCompositeOperation = 'lighter';
+    glow(C.red, view.w * 0.82, view.h * 0.12, 90 * view.k, 0.7 * a);
+    glow(C.white, view.w * 0.82, view.h * 0.12, 34 * view.k, 0.5 * a);
+    ctx.globalCompositeOperation = 'source-over';
   }
   function drawShip(p) {
     if (!p || !p.alive) return;
@@ -1646,11 +2011,30 @@ const Game = (() => {
     if (specPid && p.pid === specPid && me && !me.alive) glow(colS(netColor(p.pid)), p.x, p.y, Math.max(p.w, p.h) * 1.4, 0.3 + 0.12 * Math.sin(time * 5));
     glow(od ? C.purple : p.glowC, p.x, p.y + p.h * 0.1, Math.max(p.w, p.h) * 0.9, 0.33 + 0.08 * Math.sin(time * 6));
     if (p.weapon >= 5) glow(C.gold, p.x, p.y, p.w * 1.1, 0.16 + 0.08 * Math.sin(time * 5));
+    if (p.auraK === 'echo') glow(C.purple, p.x, p.y, Math.max(p.w, p.h) * 1.2, 0.45);
     ctx.globalCompositeOperation = 'source-over';
-    const blink = p.invuln > 0 && p.dashT <= 0 && Math.floor(time * 20) % 2 === 0;
-    ctx.globalAlpha = blink ? 0.3 : 1;
+    const aura = p.auraT > 0 ? p.auraK : '';
+    const blink = p.invuln > 0 && p.dashT <= 0 && !aura && Math.floor(time * 20) % 2 === 0;
+    ctx.globalAlpha = blink ? 0.3 : aura === 'echo' ? 0.45 : 1;
     const flap = 1 + Math.sin(time * 9) * 0.045;
-    blit(pc, p.x, p.y + p.recoil * 3 * k, p.w, p.h, p.tilt * 0.28, (1 - Math.abs(p.tilt) * 0.2) * flap, 1);
+    // barrel roll: the ship spins once
+    const spin = p.dashT > 0 && p.dashKind === 'roll' ? (1 - p.dashT / MOVE_FX.roll.t) * TAU : 0;
+    blit(pc, p.x, p.y + p.recoil * 3 * k, p.w, p.h, p.tilt * 0.28 + spin, (1 - Math.abs(p.tilt) * 0.2) * flap, 1);
+    if (aura === 'puff') {
+      // ghast bubble
+      const R = Math.max(p.w, p.h) * 0.75;
+      const f = Math.min(1, p.auraT / 0.3);
+      ctx.globalCompositeOperation = 'lighter';
+      glow(C.white, p.x, p.y, R * 1.3, 0.2 * f);
+      world();
+      ctx.globalAlpha = (0.6 + 0.3 * Math.sin(time * 12)) * f;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 3 * k;
+      ctx.beginPath(); ctx.arc(p.x, p.y, R, 0, TAU); ctx.stroke();
+      ctx.globalAlpha = 0.5 * f;
+      ctx.beginPath(); ctx.arc(p.x - R * 0.3, p.y - R * 0.35, R * 0.18, 0, TAU); ctx.stroke();
+      ctx.globalCompositeOperation = 'source-over';
+    }
     if (debuffs.fatigue > 0) {
       ctx.globalAlpha = 0.3;
       blit(sprite(p.skinKey, p.w, p.h, 'purple'), p.x, p.y + p.recoil * 3 * k, p.w, p.h, p.tilt * 0.28, (1 - Math.abs(p.tilt) * 0.2) * flap, 1);
@@ -2821,10 +3205,15 @@ const Game = (() => {
       Sfx.play('ready');
     }
   }
-  const chargesNova = (src) => novaLock === 0 && src !== 'nova';
+  // kills made by any special attack (and anything it sets off) never refill the special meter
+  const chargesNova = (src) => novaLock === 0 && src !== 'nova' && src !== 'ult' && !ultCtx;
 
   function hurtEnemy(e, dmg, hx, hy, src = 'bullet') {
     if (e.dead || e.inv || e.mode === 'dying' || e.mode === 'enter') return;
+    if (ultCtx && e.T.boss) {
+      dmg = capUlt(e, dmg, ultCtx);
+      if (dmg <= 0) return;
+    }
     if (e.type === 'enderman' && src === 'bullet' && e.dodgeCd <= 0 && e.mode !== 2 && Math.random() < 0.3) {
       popup(e.x, e.y - e.h * 0.6, 'DODGE', '#d65bf2', 9, 0.7);
       e.dodgeCd = 1.4;
@@ -3449,17 +3838,20 @@ const Game = (() => {
         const spd = Math.min(b.speed, Math.hypot(b.vx, b.vy) + 1800 * k * dt);
         b.vx = Math.cos(ang) * spd;
         b.vy = Math.sin(ang) * spd;
-        b.rot = ang + Math.PI / 4;
+        b.rot = ang + (b.src === 'ult' && b.c ? Math.PI / 2 : Math.PI / 4);
         if (!b.orb) {
           b.trail -= dt;
-          if (b.trail <= 0) { b.trail = 0.02; P(b.x, b.y, rand(-20, 20) * k, rand(-20, 20) * k, 0.3, 7 * k, C.green, GLOW); }
+          if (b.trail <= 0) { b.trail = 0.02; P(b.x, b.y, rand(-20, 20) * k, rand(-20, 20) * k, 0.3, 7 * k, b.src === 'ult' ? b.col : C.green, GLOW); }
         }
       } else {
         b.rot += b.spin * dt;
       }
+      if (b.grav) b.vy += b.grav * dt;
       b.x += b.vx * dt;
       b.y += b.vy * dt;
       b.life -= dt;
+      // special-attack bombs (TNT, mega fireball) blow up when their fuse runs out or they reach the top
+      if (b.boom && (b.life <= 0 || (b.top && b.y < view.h * 0.22))) { if (!shadow) boomShot(b); b.dead = true; continue; }
       if (b.life <= 0 || b.y < -50 || b.y > view.h + 50 || b.x < -50 || b.x > view.w + 50) { b.dead = true; continue; }
       if (shadow) {
         for (const e of enemies) {
@@ -3476,19 +3868,26 @@ const Game = (() => {
         // Blaze King's rods physically block shots
         if (e.T.boss && e.def.block && e.mode === 'fight' && dist2(b.x, b.y, e.x, e.y) < e.w * e.w && e.def.block(e, b)) { b.dead = true; break; }
         if (!hits(e, b.x, b.y, b.r)) continue;
+        if (b.boom) { boomShot(b); b.dead = true; break; }
         if (e.inv) { b.dead = true; spark(b.x, b.y, C.white, 2); break; }
+        ultCtx = b.uid || 0;
         hurtEnemy(e, b.dmg, b.x, b.y, b.src);
+        ultCtx = 0;
         if (b.pierce > 0) { b.pierce -= 1; b.last = e; } else { b.dead = true; break; }
       }
       if (b.dead) continue;
       for (const t of ebullets) {
-        if (t.dead || !t.hp) continue;
+        if (t.dead || !t.hp || b.boom) continue;
         const rr = t.r + b.r;
         if (dist2(b.x, b.y, t.x, t.y) < rr * rr) {
           b.dead = true;
           t.hp -= b.dmg;
           spark(b.x, b.y, t.c, 3);
-          if (t.hp <= 0) popShootable(t, true);
+          if (t.hp <= 0) {
+            ultCtx = b.uid || 0;
+            popShootable(t, true);
+            ultCtx = 0;
+          }
           break;
         }
       }
@@ -3785,6 +4184,7 @@ const Game = (() => {
       case 'allay':
         if (buffs.drones <= 0) resetDrones(p);
         buffs.drones = BUFF_MAX.drones;
+        droneUlt = 0; // picked-up drones are normal: their kills count as yours
         label = 'ALLAY DRONES!';
         break;
       case 'totem':
@@ -4027,6 +4427,7 @@ const Game = (() => {
     dark = 0;
     darkT = 0;
     debuffs.fatigue = 0;
+    fires.length = 0;
   }
   /**
    * Starts a run. opts.mode: 'arcade' (default) or 'hardcore' with opts.tier ('extreme' | 'insane' | 'brutal').
@@ -4070,6 +4471,7 @@ const Game = (() => {
     blastKills = 0;
     heartFx.length = 0;
     droneOwner = null;
+    droneUlt = 0;
     // co-op: one ship per player in the room, each with its own name and skin
     const roster = opts.roster && opts.roster.length ? opts.roster : null;
     players = roster
@@ -4323,7 +4725,8 @@ const Game = (() => {
     }
     const H = [];
     for (const h of hazards) if (!h.dead) H.push([h.kind, r1(h.x), r1(h.y), r1(h.r), r2(h.life), r2(h.max), r2(h.warn), r2(h.warnMax)]);
-    const Pl = players.map((p) => [p.pid, r1(p.x), r1(p.y), r2(p.tilt), p.hp, p.maxHp, p.alive ? 1 : 0, r2(p.invuln), p.dashT > 0 ? 1 : 0, p.weapon, p.power, p.totem ? 1 : 0, r2(p.intro), p.fireOn ? 1 : 0]);
+    const Pl = players.map((p) => [p.pid, r1(p.x), r1(p.y), r2(p.tilt), p.hp, p.maxHp, p.alive ? 1 : 0, r2(p.invuln), p.dashT > 0 ? 1 : 0, p.weapon, p.power, p.totem ? 1 : 0, r2(p.intro), p.fireOn ? 1 : 0,
+      p.dashT > 0 ? MOVE_IDS.indexOf(p.dashKind) : -1, p.auraK ? MOVE_IDS.indexOf(p.auraK) : -1, r2(p.auraT || 0)]);
     const bf = {};
     for (const key in buffs) if (buffs[key] > 0) bf[key] = r1(buffs[key]);
     const dh = buffs.drones > 0 ? droneHost() : null;
@@ -4359,7 +4762,17 @@ const Game = (() => {
         };
         p.fireOn = !!m.f && p.alive;
       } else if (m.t === 'dash') {
-        if (p.alive && p.dashT <= 0) { p.dashT = DASH_TIME; p.invuln = Math.max(p.invuln, DASH_TIME + 0.12); stats.dashes += 1; }
+        // a guest used their movement ability: protect them and apply what it does here
+        if (p.alive && p.dashT <= 0) {
+          const id = moveOf(p).id; // always the move of their own skin
+          const f = MOVE_FX[id] || MOVE_FX.dash;
+          p.dashHit = new Set();
+          if (f.aura) { p.auraK = id; p.auraT = f.aura; p.invuln = Math.max(p.invuln, f.aura); }
+          else if (f.tele) p.invuln = Math.max(p.invuln, 0.35);
+          else { p.dashKind = id; p.dashT = f.t; p.invuln = Math.max(p.invuln, f.t + 0.12); }
+          moveEffects(p, id);
+          stats.dashes += 1;
+        }
       } else if (m.t === 'nova') {
         if (state === 'playing') useNova(p);
       }
@@ -4420,6 +4833,9 @@ const Game = (() => {
         p.dashT = r[8] ? Math.max(p.dashT, 0.05) : 0;
         p.intro = r[12];
         p.fireOn = !!r[13];
+        p.dashKind = MOVE_IDS[r[14]] || '';
+        p.auraK = MOVE_IDS[r[15]] || '';
+        p.auraT = r[16] || 0;
         if (!was && p.alive) { p.x = p.nx; p.y = p.ny; }
       }
     }
@@ -4538,6 +4954,7 @@ const Game = (() => {
       case 'l': bolt(a[1], a[2], a[3], a[4]); break;
       case 'h': { const t = netEnts.get(a[1]); if (t) shatter(t); break; }
       case 'hf': addHeartFx(a[1], a[2]); break;
+      case 'U': { const p = players.find((q) => q.pid === a[1]); if (p) castUlt(p, a[2], a[3]); break; }
       case 'pd': onDown(a[1]); break;
       case 'pr': onBack(a[1]); break;
       case 'pl': dropPlayer(a[1]); break;
@@ -4556,7 +4973,7 @@ const Game = (() => {
       runTime += dt;
       if (Input.consume('dash')) { const f = Input.takeFlick(); tryDash(f ? f.x : null, f ? f.y : null); }
       if (Input.consume('nova')) useNova(me);
-      for (const p of players) { player = p; updateShip(p, dt); }
+      for (const p of players) { player = p; updateShip(p, dt); moveTick(p, dt); ultTick(p, dt); }
       player = me;
       if (buffs.timewarp > 0) { tickT -= dt; if (tickT <= 0) { tickT = 0.5; Sfx.play('tick'); } }
       if (me && me.alive && me.hp === 1) { hbT -= dt; if (hbT <= 0) { hbT = 0.95; Sfx.play('heartbeat'); } }
@@ -4731,11 +5148,12 @@ const Game = (() => {
       if (comboT > 0) { comboT -= dt; if (comboT <= 0) resetCombo(); }
       if (Input.consume('dash')) { const f = Input.takeFlick(); tryDash(f ? f.x : null, f ? f.y : null); }
       if (Input.consume('nova')) useNova(me);
-      for (const p of players) { player = p; updateShip(p, dt); }
+      for (const p of players) { player = p; updateShip(p, dt); moveTick(p, dt); ultTick(p, dt); }
       player = me;
       updateWave(edt);
       updateStorm(dt);
       updateDrones(dt);
+      updateFires(dt);
       if (buffs.timewarp > 0) { tickT -= dt; if (tickT <= 0) { tickT = 0.5; Sfx.play('tick'); } }
       if (me && me.alive && me.hp === 1) { hbT -= dt; if (hbT <= 0) { hbT = 0.95; Sfx.play('heartbeat'); } }
     }
@@ -4783,6 +5201,7 @@ const Game = (() => {
     drawIncoming();
     drawDarkness();
     drawBullets();
+    drawBloodMoon();
     drawPlayers();
     drawEBullets();
     drawBolts();
@@ -4823,11 +5242,13 @@ const Game = (() => {
       hud.maxHp = vp.maxHp;
       hud.weapon = vp.weapon;
       hud.power = vp.power;
-      hud.dash = me && me.dashCd > 0 ? 1 - me.dashCd / DASH_CD : 1;
+      hud.dash = me && me.dashCd > 0 ? 1 - me.dashCd / moveOf(me).cd : 1;
       hud.alive = vp.alive;
       hud.totem = vp.totem;
     }
     hud.mp = !!net;
+    // your own skin's abilities (for the two buttons in the corner)
+    hud.skin = me ? me.skin : skin.id;
     hud.spectating = net && me && !me.alive && vp && vp !== me ? shipName(vp) : '';
     hud.nova = nova;
     hud.wave = wave.n;
@@ -4976,6 +5397,15 @@ const Game = (() => {
       hurtPid(pid) { const p = players.find((q) => q.pid === pid); if (p) { buffs.shield = 0; p.invuln = 0; p.dashT = 0; p.intro = 0; hurtPlayer(1, p); } },
       killPid(pid) { const p = players.find((q) => q.pid === pid); if (p && p.alive) { buffs.shield = 0; p.totem = false; p.hp = 1; p.invuln = 0; p.dashT = 0; p.intro = 0; hurtPlayer(1, p); } },
       world() { return { w: view.w, h: view.h, z: +view.z.toFixed(3), ox: Math.round(view.ox), oy: Math.round(view.oy), fixed: !!fixedWorld }; },
+      // ability testing: a ring of enemy bullets around you, and what your abilities are doing
+      spawnBullets(n = 12, r = 90) { if (!me) return; for (let i = 0; i < n; i++) { const a = (i / n) * TAU; eShoot(me.x + Math.cos(a) * r * view.k, me.y + Math.sin(a) * r * view.k, 0, 0, 'orb'); } },
+      abilities() {
+        return me && {
+          skin: me.skin, move: moveOf(me).id, ult: ultOf(me).id, dashCd: +me.dashCd.toFixed(2), dashT: +me.dashT.toFixed(2), auraK: me.auraK || '', invuln: +me.invuln.toFixed(2),
+          ultFx: me.ultFx ? me.ultFx.k : '', x: Math.round(me.x), y: Math.round(me.y), hp: me.hp, kills: stats.kills, fires: fires.length,
+          shots: bullets.filter((b) => b.src === 'ult').length, magnet: +buffs.magnet.toFixed(1), shield: +buffs.shield.toFixed(1), drones: +buffs.drones.toFixed(1), timewarp: +buffs.timewarp.toFixed(1), nova, dark: darkT,
+        };
+      },
       player() { return player && { x: player.x, y: player.y, hp: player.hp, maxHp: player.maxHp, weapon: player.weapon, power: player.power, alive: player.alive, totem: player.totem }; },
       info() {
         return {

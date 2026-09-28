@@ -128,10 +128,99 @@ const Net = (() => {
     room = '';
     token = '';
   }
-  function openPeer(id) {
+  // ------------------------------------------------------------ connection routes (STUN + relays)
+  // STUN lets two devices find each other's public address (enough on most home connections).
+  // A relay (TURN) carries the game when the two networks can't reach each other directly.
+  const STUN = [
+    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+  ];
+  /** Normalises a relay entry: { urls, username, credential } (urls can be one string or a list). */
+  function relayEntry(r) {
+    if (!r || !r.urls) return null;
+    const urls = (Array.isArray(r.urls) ? r.urls : String(r.urls).split(/[\s,]+/)).map((u) => String(u).trim()).filter((u) => /^turns?:/i.test(u));
+    if (!urls.length) return null;
+    return { urls, username: String(r.username || ''), credential: String(r.credential || '') };
+  }
+  /** Fetches a relay-credentials link (Metered, a Cloudflare worker...) and returns relay entries. */
+  async function fetchRelays(link) {
+    if (!/^https:\/\//i.test(link || '')) return [];
+    const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = setTimeout(() => ctl && ctl.abort(), 6000);
+    try {
+      const res = await fetch(link, { signal: ctl ? ctl.signal : undefined, cache: 'no-store' });
+      if (!res.ok) throw new Error('http ' + res.status);
+      let data = await res.json();
+      if (data && data.iceServers) data = data.iceServers;
+      return (Array.isArray(data) ? data : [data]).map(relayEntry).filter(Boolean);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  /** This device's saved relay (in-game CONNECTION SETUP) plus the one in netconfig.js. */
+  function relaySources() {
+    const out = [];
+    const mine = typeof Settings !== 'undefined' ? Settings.get('relay') : null;
+    if (mine) out.push(mine);
+    if (typeof NET_CONFIG !== 'undefined' && NET_CONFIG) out.push({ link: NET_CONFIG.relayLink, list: NET_CONFIG.relays });
+    return out;
+  }
+  async function iceConfig() {
+    const servers = STUN.slice();
+    for (const src of relaySources()) {
+      const direct = relayEntry(src);
+      if (direct) servers.push(direct);
+      for (const r of src.list || []) { const e = relayEntry(r); if (e) servers.push(e); }
+      if (src.link) { try { servers.push(...(await fetchRelays(src.link))); } catch (_) { /* link down: carry on without it */ } }
+    }
+    const relayCount = servers.length - STUN.length;
+    // testing aid: force relayed connections (what two far-apart players on strict networks get)
+    const relayOnly = relayCount > 0 && typeof Settings !== 'undefined' && Settings.get('relayOnly') === true;
+    return { config: { iceServers: servers, iceTransportPolicy: relayOnly ? 'relay' : 'all' }, relayCount };
+  }
+  let lastRelayCount = 0;
+  /**
+   * Checks a relay: asks it for a relay address. Returns { ok, ms, reason }.
+   * r: { urls, username, credential } and/or { link }.
+   */
+  async function testRelay(r) {
+    let list = [];
+    try {
+      const e = relayEntry(r);
+      if (e) list.push(e);
+      if (r && r.link) list = list.concat(await fetchRelays(r.link));
+    } catch (err) {
+      return { ok: false, reason: 'link' };
+    }
+    if (!list.length) return { ok: false, reason: 'empty' };
+    return new Promise((resolve) => {
+      const t0 = performance.now();
+      let pc;
+      try { pc = new RTCPeerConnection({ iceServers: list, iceTransportPolicy: 'relay' }); } catch (_) { resolve({ ok: false, reason: 'address' }); return; }
+      let settled = false;
+      let auth = false;
+      const done = (ok, reason) => {
+        if (settled) return;
+        settled = true;
+        try { pc.close(); } catch (_) { /* ignore */ }
+        resolve({ ok, reason, ms: Math.round(performance.now() - t0) });
+      };
+      pc.createDataChannel('probe');
+      pc.onicecandidate = (e) => { if (e.candidate && / typ relay/.test(e.candidate.candidate)) done(true, ''); };
+      pc.onicecandidateerror = (e) => { if (e.errorCode === 401) auth = true; };
+      pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === 'complete') done(false, auth ? 'login' : 'unreachable'); };
+      pc.createOffer().then((o) => pc.setLocalDescription(o)).catch(() => done(false, 'address'));
+      setTimeout(() => done(false, auth ? 'login' : 'unreachable'), 9000);
+    });
+  }
+
+  async function openPeer(id) {
+    if (!window.peerjs || !window.peerjs.Peer) throw fail('nolib');
+    const ice = await iceConfig();
+    lastRelayCount = ice.relayCount;
     return new Promise((resolve, reject) => {
-      if (!window.peerjs || !window.peerjs.Peer) { reject(fail('nolib')); return; }
-      const p = id ? new window.peerjs.Peer(id, { debug: 0 }) : new window.peerjs.Peer({ debug: 0 });
+      const opts = { debug: 0, config: ice.config };
+      const p = id ? new window.peerjs.Peer(id, opts) : new window.peerjs.Peer(opts);
       const timer = setTimeout(() => { cleanup(); try { p.destroy(); } catch (_) { /* ignore */ } reject(fail('timeout')); }, TIMEOUT);
       const onOpen = () => { cleanup(); resolve(p); };
       const onErr = (err) => { cleanup(); try { p.destroy(); } catch (_) { /* ignore */ } reject(mapPeerError(err)); };
@@ -283,10 +372,14 @@ const Net = (() => {
         clearTimeout(timer);
         if (err) { reset(); reject(err); } else resolve();
       };
-      const timer = setTimeout(() => finish(fail('timeout')), TIMEOUT);
+      // no answer after the room was looked up = the two networks can't reach each other (needs a relay)
+      const natFail = () => fail(lastRelayCount ? 'natrelay' : 'nat');
+      const timer = setTimeout(() => finish(natFail()), TIMEOUT);
       peer.on('error', (err) => { if (!settled) finish(mapPeerError(err)); else if (err && err.type === 'network') emit('warn', 'network'); });
       const conn = peer.connect(target, { reliable: true, serialization: 'json' });
       hostConn = conn;
+      const pc = conn.peerConnection;
+      if (pc && pc.addEventListener) pc.addEventListener('iceconnectionstatechange', () => { if (pc.iceConnectionState === 'failed') finish(natFail()); });
       conn.on('open', () => safeSend(conn, { t: 'hello', v: VERSION, name: nm, skin: validSkin(skin), token, ar: screenAr() }));
       conn.on('data', (m) => {
         if (!m || typeof m !== 'object') return;
@@ -304,8 +397,11 @@ const Net = (() => {
         }
         onHostMessage(m);
       });
-      conn.on('close', () => { if (!settled) finish(fail('closed')); else lost('lost'); });
-      conn.on('error', () => { if (!settled) finish(fail('closed')); });
+      // closing before the channel ever opened also means the networks couldn't connect
+      let opened = false;
+      conn.on('open', () => { opened = true; });
+      conn.on('close', () => { if (!settled) finish(opened ? fail('closed') : natFail()); else lost('lost'); });
+      conn.on('error', () => { if (!settled) finish(opened ? fail('closed') : natFail()); });
     });
     hostLast = now();
     pingTimer = setInterval(() => { if (role === 'guest' && now() - hostLast > 12000) lost('lost'); }, 2000);
@@ -380,7 +476,10 @@ const Net = (() => {
     VERSION, COLORS,
     create, join, leave, kick, setSettings, setSkin, startGame, backToLobby,
     send, broadcast, sendTo, on,
-    sha256, cleanName, cleanRoom,
+    sha256, cleanName, cleanRoom, testRelay,
+    /** How many relay servers this device will use (0 = direct connections only). */
+    get relayCount() { return lastRelayCount; },
+    hasRelaySetup() { return relaySources().some((s) => relayEntry(s) || s.link || (s.list && s.list.length)); },
     get role() { return role; },
     get phase() { return phase; },
     get room() { return room; },

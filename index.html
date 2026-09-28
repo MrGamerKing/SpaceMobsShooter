@@ -60,11 +60,11 @@
     <div id="hudPowers" class="powers"></div>
 
     <div class="dock">
-      <button id="abDash" class="ability dash" aria-label="Dash">
+      <button id="abDash" class="ability dash" aria-label="Move ability">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 13l6-6 6 6M6 19l6-6 6 6"/></svg>
         <kbd>SHIFT</kbd>
       </button>
-      <button id="abNova" class="ability nova" aria-label="Nova bomb">
+      <button id="abNova" class="ability nova" aria-label="Special attack">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 1.5l2.1 6.2 6.3-2.3-3.6 5.6 5.7 3.3-6.5.8.6 6.6L12 16.9l-4.6 4.8.6-6.6-6.5-.8 5.7-3.3-3.6-5.6 6.3 2.3z"/></svg>
         <kbd>B</kbd>
       </button>
@@ -153,8 +153,8 @@
               <span>Fly</span><span><kbd class="k">W</kbd><kbd class="k">A</kbd><kbd class="k">S</kbd><kbd class="k">D</kbd> / <kbd class="k">ARROWS</kbd></span>
               <span>Fly with mouse</span><span><kbd class="k">HOLD LEFT CLICK</kbd></span>
               <span>Shoot (auto-fire is on)</span><span><kbd class="k">SPACE</kbd> <kbd class="k">F</kbd> toggle</span>
-              <span>Dash (invincible)</span><span><kbd class="k">SHIFT</kbd> / <kbd class="k">K</kbd></span>
-              <span>Nova bomb</span><span><kbd class="k">B</kbd> / <kbd class="k">RIGHT CLICK</kbd></span>
+              <span>Move ability (your skin's own)</span><span><kbd class="k">SHIFT</kbd> / <kbd class="k">K</kbd></span>
+              <span>Special attack (your skin's own)</span><span><kbd class="k">B</kbd> / <kbd class="k">RIGHT CLICK</kbd></span>
               <span>Pause · Mute</span><span><kbd class="k">ESC</kbd> <kbd class="k">M</kbd></span>
             </div>
           </div>
@@ -162,8 +162,8 @@
             <h4>📱 TOUCH</h4>
             <div class="ctrl-list">
               <span>Drag anywhere — the ship mirrors your finger, never hides under it</span><span><kbd class="k">DRAG</kbd></span>
-              <span>Quick swipe &amp; release to dash that way</span><span><kbd class="k">FLICK</kbd></span>
-              <span>Nova bomb</span><span><kbd class="k">2-FINGER TAP</kbd></span>
+              <span>Quick swipe &amp; release to use your move that way</span><span><kbd class="k">FLICK</kbd></span>
+              <span>Special attack</span><span><kbd class="k">2-FINGER TAP</kbd></span>
               <span>Prefer a stick or left-handed buttons? See Settings</span><span><kbd class="k">SETTINGS</kbd></span>
             </div>
           </div>
@@ -172,7 +172,7 @@
             <div class="ctrl-list">
               <span>Fly</span><span><kbd class="k">L-STICK</kbd> / <kbd class="k">D-PAD</kbd></span>
               <span>Shoot · Dash</span><span><kbd class="k">A</kbd>/<kbd class="k">RT</kbd> · <kbd class="k">B</kbd>/<kbd class="k">RB</kbd></span>
-              <span>Nova · Pause</span><span><kbd class="k">X</kbd>/<kbd class="k">Y</kbd> · <kbd class="k">START</kbd></span>
+              <span>Special · Pause</span><span><kbd class="k">X</kbd>/<kbd class="k">Y</kbd> · <kbd class="k">START</kbd></span>
             </div>
           </div>
         </div>
@@ -207,17 +207,18 @@
             <div class="card"><img src="clock.png" alt=""><div><b>TIME WARP<span class="tag new">NEW</span></b><p>Slows every mob and bullet to 40% for 7 seconds. You stay full speed.</p></div></div>
             <div class="card"><img src="trident.png" alt=""><div><b>THUNDERSTORM<span class="tag new">NEW</span></b><p>Lightning strikes up to 3 mobs every half second.</p></div></div>
             <div class="card"><img src="allay.png" alt=""><div><b>ALLAY DRONES<span class="tag new">NEW</span></b><p>Two helpers orbit you and fire homing bolts.</p></div></div>
-            <div class="card"><img src="totem.png" alt=""><div><b>TOTEM OF UNDYING<span class="tag new">NEW</span></b><p>An extra life: when you would die you come back with 3 hearts and a free Nova.</p></div></div>
+            <div class="card"><img src="totem.png" alt=""><div><b>TOTEM OF UNDYING<span class="tag new">NEW</span></b><p>An extra life: when you would die you come back with 3 hearts and a free Nova blast.</p></div></div>
             <div class="card"><img src="scoreinc2.png" alt=""><div><b>SCORE POTION</b><p>Doubles all points for 12 seconds.</p></div></div>
             <div class="card"><img src="scoreinc.png" alt=""><div><b>EMERALD ORB</b><p>+250 points instantly.</p></div></div>
             <div class="card"><img src="heart.png" alt=""><div><b>HEART</b><p>+1 heart and cures Mining Fatigue. At full health it adds a heart slot (up to 10).</p></div></div>
           </div>
           <ul class="tips">
             <li><b>COMBO</b> — chain kills quickly to raise your multiplier up to x8. Getting hit or letting a mob escape resets it.</li>
-            <li><b>NOVA</b> — a screen-wide shockwave. It only recharges from mobs YOU kill and from grazing bullets — kills made by the Nova itself don't count.</li>
-            <li><b>GRAZE</b> — skim bullets without touching them for bonus points and Nova charge.</li>
+            <li><b>SKINS</b> — every character has its own <b>move</b> (SHIFT) and <b>special attack</b> (B). See them on the SKINS screen.</li>
+            <li><b>SPECIAL METER</b> — it only fills from mobs YOU kill and from grazing bullets. Kills made by a special never count, and a special can only take a small slice of a boss's health.</li>
+            <li><b>GRAZE</b> — skim bullets without touching them for bonus points and special charge.</li>
             <li><b>PERFECT</b> — clear a wave without taking damage for double bonus and a free power-up.</li>
-            <li><b>CO-OP</b> — in Multiplayer the team shares the score, combo, Nova and power-ups. Stars, hearts and totems go to whoever grabs them.</li>
+            <li><b>CO-OP</b> — in Multiplayer the team shares the score, combo, special meter and power-ups. Everyone keeps their own skin's abilities. Stars, hearts and totems go to whoever grabs them.</li>
           </ul>
         </div>
       </div>
@@ -333,6 +334,7 @@
             <span class="mode-tags"><i>ROOM NAME</i><i>PASSWORD</i></span>
           </button>
         </div>
+        <button id="mpRelayLine" class="relay-line" data-act="relay"></button>
         <p class="form-note mp-note">Needs an internet connection. The host's device runs the game, so the host should keep the game open and in front.</p>
       </div>
     </div>
@@ -350,6 +352,7 @@
         <label class="field"><span>PASSWORD</span><span class="pw"><input name="password" type="password" maxlength="32" placeholder="At least 4 characters" enterkeyhint="go"><button type="button" class="pw-eye" data-eye aria-label="Show password"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></span></label>
         <p class="form-note">Your password never leaves this device. Friends find the room with a scrambled fingerprint of its name and password.</p>
         <p class="form-status" data-status role="status"></p>
+        <button type="button" class="btn btn-sm relay-fix hidden" data-act="relay">SET UP A RELAY FOR FAR-AWAY FRIENDS</button>
         <button type="submit" class="btn btn-primary">CREATE ROOM</button>
       </form>
     </div>
@@ -366,8 +369,43 @@
         <label class="field"><span>USERNAME</span><input name="name" maxlength="12" placeholder="Your name" enterkeyhint="next" spellcheck="false"></label>
         <label class="field"><span>PASSWORD</span><span class="pw"><input name="password" type="password" maxlength="32" placeholder="Room password" enterkeyhint="go"><button type="button" class="pw-eye" data-eye aria-label="Show password"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></span></label>
         <p class="form-status" data-status role="status"></p>
+        <button type="button" class="btn btn-sm relay-fix hidden" data-act="relay">SET UP A RELAY FOR FAR-AWAY FRIENDS</button>
         <button type="submit" class="btn btn-primary">JOIN ROOM</button>
       </form>
+    </div>
+  </section>
+
+  <section id="scrRelay" class="screen overlay">
+    <div class="panel">
+      <div class="panel-head">
+        <button class="icon-btn" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <h2>CONNECTION SETUP</h2>
+      </div>
+      <div class="panel-body">
+        <div id="relayStatus" class="relay-status"></div>
+        <p class="tab-intro">Friends on the <b>same Wi-Fi</b> connect directly. Friends <b>far away</b> (a different internet connection or mobile data) often can't reach you directly, so the game needs a <b>relay server</b> (called TURN) to pass the game between you. The host having one is usually enough, but it works best when everyone adds it.</p>
+        <ol class="relay-steps">
+          <li>Make a free account with a relay provider, for example <a href="https://www.expressturn.com" target="_blank" rel="noopener">ExpressTURN</a> or <a href="https://www.metered.ca/stun-turn" target="_blank" rel="noopener">Metered</a> (check their free-plan limits).</li>
+          <li>Copy your relay <b>address</b>, <b>username</b> and <b>password</b>, or Metered's <b>credentials link</b>.</li>
+          <li>Paste them below, press <b>TEST</b>, then <b>SAVE</b>.</li>
+        </ol>
+        <form id="formRelay" class="net-form" autocomplete="off" novalidate>
+          <label class="field"><span>RELAY ADDRESS</span><input name="urls" placeholder="turn:relay1.expressturn.com:3478" spellcheck="false"></label>
+          <div class="field-row">
+            <label class="field"><span>USERNAME</span><input name="username" spellcheck="false"></label>
+            <label class="field"><span>PASSWORD</span><span class="pw"><input name="credential" type="password"><button type="button" class="pw-eye" data-eye aria-label="Show password"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></span></label>
+          </div>
+          <div class="or-line"><span>OR</span></div>
+          <label class="field"><span>RELAY LINK (METERED OR YOUR OWN)</span><input name="link" placeholder="https://yourapp.metered.live/api/v1/turn/credentials?apiKey=…" spellcheck="false"></label>
+          <p class="form-status" data-status role="status"></p>
+          <div class="relay-btns">
+            <button type="button" class="btn" data-act="relayTest">TEST</button>
+            <button type="submit" class="btn btn-primary">SAVE</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-act="relayClear">REMOVE</button>
+          </div>
+          <p class="form-note">Saved only on this device and only ever sent to your relay server. The game's owner can also put a relay in <b>netconfig.js</b> so it works for everyone.</p>
+        </form>
+      </div>
     </div>
   </section>
 
@@ -444,7 +482,8 @@
           <div class="skin-info">
             <b id="skinName">PHANTOM</b>
             <p id="skinDesc"></p>
-            <span class="skin-note">Skins are just for looks. Your hitbox stays the same.</span>
+            <div id="skinAbils" class="skin-abils"></div>
+            <span class="skin-note">Every character has its own two abilities. Your hitbox stays the same.</span>
           </div>
         </div>
         <div id="skinGrid" class="skin-grid"></div>
@@ -486,6 +525,10 @@
           <div class="row"><span class="lbl">Quality<small>Low = fewer particles, faster on old phones</small></span>
             <span class="seg" data-set="quality"><button data-val="high">HIGH</button><button data-val="low">LOW</button></span></div>
           <div class="row"><span class="lbl">Show FPS</span><button class="toggle" role="switch" data-set="showFps" aria-label="Show FPS"></button></div>
+        </div>
+        <div class="set-group">
+          <h4>ONLINE</h4>
+          <div class="row"><span class="lbl">Relay server<small id="setRelayNote">Lets you play with friends on a different internet connection</small></span><button class="btn btn-sm" data-act="relay">SETUP</button></div>
         </div>
         <div class="set-group">
           <h4>DATA</h4>
@@ -676,6 +719,7 @@
 <script src="input.js"></script>
 <script src="skins.js"></script>
 <script src="peerjs.min.js"></script>
+<script src="netconfig.js"></script>
 <script src="net.js"></script>
 <script src="bosses.js"></script>
 <script src="game.js"></script>

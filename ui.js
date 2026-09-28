@@ -22,8 +22,9 @@ const UI = (() => {
     trophies: $('scrTrophies'), skins: $('scrSkins'), pause: $('scrPause'), over: $('scrOver'),
     modes: $('scrModes'), arcade: $('scrArcade'), hardcore: $('scrHardcore'),
     mp: $('scrMp'), create: $('scrCreate'), join: $('scrJoin'), lobby: $('scrLobby'), down: $('scrDown'), netMsg: $('scrNetMsg'),
+    relay: $('scrRelay'),
   };
-  const SUB_SCREENS = ['how', 'settings', 'about', 'trophies', 'skins', 'modes', 'arcade', 'hardcore', 'mp', 'create', 'join'];
+  const SUB_SCREENS = ['how', 'settings', 'about', 'trophies', 'skins', 'modes', 'arcade', 'hardcore', 'mp', 'create', 'join', 'relay'];
   const TIER = Object.fromEntries(HARDCORE_TIERS.map((t) => [t.id, t]));
   const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
   const els = {
@@ -44,6 +45,7 @@ const UI = (() => {
   function show(name) {
     for (const [key, el] of Object.entries(screens)) el.classList.toggle('active', key === name);
     current = name;
+    if (name === 'mp') renderRelayLine(); // also when coming back from CONNECTION SETUP
     if (!name) {
       if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
       return;
@@ -62,6 +64,8 @@ const UI = (() => {
     if (name === 'modes') renderModes();
     if (name === 'arcade') renderArcade();
     if (name === 'hardcore') renderHardcore();
+    if (name === 'relay') renderRelay();
+    if (name === 'mp') renderRelayLine();
     stack.push(current);
     show(name);
     if (name === 'skins' && keyNav) {
@@ -123,6 +127,21 @@ const UI = (() => {
     startGame(cp ? { mode: 'arcade', checkpoint: cp } : { mode: 'arcade' });
   }
 
+  const skinOf = (id) => (typeof SKINS !== 'undefined' && (SKINS.find((s) => s.id === id) || SKINS[0])) || null;
+  const ultColor = (s) => (s.ult.id === 'nova' ? '#ff4fd8' : s.glow === '#ffffff' ? '#ffb0b0' : s.glow);
+  /** The dash and special buttons show your skin's own abilities. */
+  function paintAbilities(id) {
+    const s = skinOf(id);
+    if (!s || typeof ABILITY_ICONS === 'undefined') return;
+    els.abDash.innerHTML = `${ABILITY_ICONS[s.move.id] || ''}<kbd>SHIFT</kbd>`;
+    els.abNova.innerHTML = `${ABILITY_ICONS[s.ult.id] || ''}<kbd>B</kbd>`;
+    els.abDash.setAttribute('aria-label', s.move.name);
+    els.abNova.setAttribute('aria-label', s.ult.name);
+    els.abDash.title = `${s.move.name} (SHIFT)`;
+    els.abNova.title = `${s.ult.name} (B)`;
+    els.abNova.dataset.ult = s.ult.id;
+    els.abNova.style.setProperty('--c', ultColor(s));
+  }
   function hideSpec() {
     els.specBar.classList.remove('show');
     body.classList.remove('spectating');
@@ -183,6 +202,15 @@ const UI = (() => {
     mp: () => open('mp'),
     mpCreate: () => { prefill('formCreate'); open('create'); },
     mpJoin: () => { prefill('formJoin'); open('join'); },
+    relay: () => open('relay'),
+    relayTest: () => runRelayTest(),
+    relayClear: () => {
+      Settings.set('relay', null);
+      $('formRelay').reset();
+      renderRelay();
+      formStatus($('formRelay'), 'Relay removed. Only direct connections will be used.', '');
+      Sfx.play('click');
+    },
     lobbyStart: () => {
       if (Net.role !== 'host') return;
       const world = Game.netWorld(Net.roster.map((r) => r.ar));
@@ -231,7 +259,7 @@ const UI = (() => {
   };
 
   // ================================================================ HUD
-  const shown = { score: -1, comboOn: false, mult: 0, combo: -1, hp: -1, maxHp: -1, weapon: -1, power: -1, wave: -1, low: false, prog: -2, totem: null, warp: false, spec: '' };
+  const shown = { score: -1, comboOn: false, mult: 0, combo: -1, hp: -1, maxHp: -1, weapon: -1, power: -1, wave: -1, low: false, prog: -2, totem: null, warp: false, spec: '', skin: '' };
   let dispScore = 0;
   let lastScore = 0;
   let lastBump = 0;
@@ -376,7 +404,8 @@ const UI = (() => {
       if (prog >= 0) els.waveFill.style.transform = `scaleX(${prog})`;
     }
 
-    // abilities
+    // abilities: the two buttons belong to your skin
+    if (h.skin !== shown.skin) { shown.skin = h.skin; paintAbilities(h.skin); }
     setP(els.abDash, h.dash);
     els.abDash.classList.toggle('ready', h.dash >= 1);
     setP(els.abNova, h.nova / 100);
@@ -484,15 +513,19 @@ const UI = (() => {
   let hintTimer = 0;
   function showHint() {
     const dev = Input.device;
+    // your skin's own abilities
+    const s = skinOf(Settings.get('skin'));
+    const mv = s ? s.move.name.toLowerCase() : 'dash';
+    const ul = s ? s.ult.name.toLowerCase() : 'nova';
     let items;
     if (dev === 'touch') {
       items = Settings.get('touchScheme') === 'joystick'
-        ? ['<b>THUMB STICK</b> steer', '<b>FLICK</b> other side = dash', '<b>DOUBLE-TAP</b> = nova']
-        : ['<b>DRAG</b> anywhere to fly', '<b>FLICK</b> to dash', '<b>2-FINGER TAP</b> = nova'];
+        ? ['<b>THUMB STICK</b> steer', `<b>FLICK</b> other side = ${mv}`, `<b>DOUBLE-TAP</b> = ${ul}`]
+        : ['<b>DRAG</b> anywhere to fly', `<b>FLICK</b> = ${mv}`, `<b>2-FINGER TAP</b> = ${ul}`];
     } else if (dev === 'gamepad') {
-      items = ['<b>L-STICK</b> fly', '<b>B</b> dash', '<b>X</b> nova', '<b>START</b> pause'];
+      items = ['<b>L-STICK</b> fly', `<b>B</b> ${mv}`, `<b>X</b> ${ul}`, '<b>START</b> pause'];
     } else {
-      items = ['<b>WASD</b> fly', '<b>SHIFT</b> dash', '<b>B</b> nova', '<b>HOLD CLICK</b> mouse fly', '<b>F</b> auto-fire'];
+      items = ['<b>WASD</b> fly', `<b>SHIFT</b> ${mv}`, `<b>B</b> ${ul}`, '<b>HOLD CLICK</b> mouse fly', '<b>F</b> auto-fire'];
     }
     const el = $('hint');
     el.innerHTML = items.map((i) => `<span>${i}</span>`).join('');
@@ -507,7 +540,7 @@ const UI = (() => {
     show(null);
     els.hearts.innerHTML = '';
     for (const key in chips) { chips[key].remove(); delete chips[key]; }
-    Object.assign(shown, { score: -1, comboOn: false, mult: 0, combo: -1, hp: -1, maxHp: -1, weapon: -1, power: -1, wave: -1, low: false, prog: -2, totem: null, warp: false, spec: '' });
+    Object.assign(shown, { score: -1, comboOn: false, mult: 0, combo: -1, hp: -1, maxHp: -1, weapon: -1, power: -1, wave: -1, low: false, prog: -2, totem: null, warp: false, spec: '', skin: '' });
     dispScore = 0;
     lastScore = 0;
     els.combo.classList.remove('on');
@@ -677,7 +710,72 @@ const UI = (() => {
     version: "Your game version doesn't match the host's. Everyone needs the latest version.",
     browser: "This browser doesn't support online play.",
     closed: 'The room closed the connection.',
+    nat: "Found the room, but your two internet connections can't reach each other directly (this is normal between different networks or on mobile data). Set up a free relay server to fix it.",
+    natrelay: "Found the room, but couldn't connect even through your relay. Press TEST in CONNECTION SETUP to check it, and ask the host to add a relay too.",
   };
+  const RELAY_ERRORS = {
+    login: 'The relay answered, but the username or password is wrong.',
+    unreachable: "Couldn't reach that relay. Check the address (it should start with turn: or turns:) and your internet connection.",
+    link: "Couldn't load that relay link. Check the link (and the API key in it).",
+    empty: 'Enter a relay address, or a relay link.',
+    address: "That relay address doesn't look right. It should look like turn:relay.example.com:3478",
+  };
+  /** What's typed in the relay form, as { urls, username, credential, link }. */
+  function relayForm() {
+    const f = $('formRelay');
+    const r = {
+      urls: f.elements.urls.value.trim(), username: f.elements.username.value.trim(),
+      credential: f.elements.credential.value, link: f.elements.link.value.trim(),
+    };
+    return r.urls || r.link ? r : null;
+  }
+  function renderRelay() {
+    const saved = Settings.get('relay');
+    const f = $('formRelay');
+    if (saved && !f.elements.urls.value && !f.elements.link.value) {
+      f.elements.urls.value = saved.urls || '';
+      f.elements.username.value = saved.username || '';
+      f.elements.credential.value = saved.credential || '';
+      f.elements.link.value = saved.link || '';
+    }
+    const shared = typeof NET_CONFIG !== 'undefined' && NET_CONFIG && (NET_CONFIG.relayLink || (NET_CONFIG.relays && NET_CONFIG.relays.length));
+    const st = $('relayStatus');
+    st.className = `relay-status ${saved || shared ? 'on' : ''}`;
+    st.innerHTML = saved
+      ? '<b>✓ RELAY SAVED ON THIS DEVICE</b><span>Friends far away can connect.</span>'
+      : shared
+        ? '<b>✓ RELAY SET BY THE GAME</b><span>netconfig.js has one, so this copy works for far-away friends.</span>'
+        : '<b>DIRECT CONNECTIONS ONLY</b><span>Works on the same Wi-Fi. Add a relay to play across different internet connections.</span>';
+    if (!f.querySelector('[data-status]').textContent) formStatus(f, '');
+  }
+  function renderRelayLine() {
+    const on = Net.hasRelaySetup();
+    const el = $('mpRelayLine');
+    el.className = `relay-line ${on ? 'on' : ''}`;
+    el.innerHTML = on ? '✓ RELAY READY · FAR-AWAY FRIENDS CAN JOIN' : '⚠ SAME WI-FI ONLY · SET UP A RELAY FOR FAR-AWAY FRIENDS ›';
+  }
+  async function runRelayTest() {
+    const f = $('formRelay');
+    const r = relayForm();
+    if (!r) { formStatus(f, RELAY_ERRORS.empty, 'bad'); return; }
+    formStatus(f, 'TESTING RELAY…', 'busy');
+    const res = await Net.testRelay(r);
+    if (res.ok) { formStatus(f, `✓ The relay works (answered in ${res.ms} ms). Press SAVE.`, 'good'); Sfx.play('power'); }
+    else { formStatus(f, RELAY_ERRORS[res.reason] || RELAY_ERRORS.unreachable, 'bad'); Sfx.play('hurt'); }
+    return res.ok;
+  }
+  async function saveRelay(e) {
+    e.preventDefault();
+    const f = $('formRelay');
+    const r = relayForm();
+    if (!r) { formStatus(f, RELAY_ERRORS.empty, 'bad'); return; }
+    const okNow = await runRelayTest();
+    if (!okNow) return;
+    Settings.set('relay', r);
+    renderRelay();
+    formStatus(f, '✓ Saved. Friends on other networks can now connect to you (and you to them).', 'good');
+    toast('RELAY SAVED');
+  }
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   function prefill(formId) {
     const f = $(formId);
@@ -703,6 +801,8 @@ const UI = (() => {
     const btn = f.querySelector('[type=submit]');
     btn.disabled = true;
     formStatus(f, create ? 'CREATING ROOM…' : 'FINDING ROOM…', 'busy');
+    f.querySelector('.relay-fix').classList.add('hidden');
+    const slow = create ? 0 : setTimeout(() => { if (btn.disabled) formStatus(f, 'CONNECTING TO THE HOST…', 'busy'); }, 3500);
     Sfx.unlock();
     try {
       if (create) await Net.create({ room, name, password, skin: Settings.get('skin') });
@@ -714,9 +814,13 @@ const UI = (() => {
       Sfx.play('power');
       showLobby();
     } catch (err) {
-      formStatus(f, NET_ERRORS[err && err.code] || NET_ERRORS.network, 'bad');
+      const code = err && err.code;
+      formStatus(f, NET_ERRORS[code] || NET_ERRORS.network, 'bad');
+      // "can't reach each other" → offer the relay setup right there
+      f.querySelector('.relay-fix').classList.toggle('hidden', code !== 'nat' && code !== 'natrelay');
       Sfx.play('hurt');
     } finally {
+      clearTimeout(slow);
       btn.disabled = false;
     }
   }
@@ -779,6 +883,7 @@ const UI = (() => {
   function initLobby() {
     $('formCreate').addEventListener('submit', (e) => submitNet(e, true));
     $('formJoin').addEventListener('submit', (e) => submitNet(e, false));
+    $('formRelay').addEventListener('submit', saveRelay);
     document.querySelectorAll('[data-eye]').forEach((b) => b.addEventListener('click', () => {
       const inp = b.parentElement.querySelector('input');
       inp.type = inp.type === 'password' ? 'text' : 'password';
@@ -872,6 +977,11 @@ const UI = (() => {
     $('scrSkins').style.setProperty('--skin', s.glow);
     $('skinName').textContent = s.name;
     $('skinDesc').textContent = s.desc;
+    const icon = (id) => (typeof ABILITY_ICONS !== 'undefined' && ABILITY_ICONS[id]) || '';
+    $('skinAbils').innerHTML = [
+      ['SHIFT', 'MOVE', s.move, `COOLDOWN ${s.move.cd}s`, s.glow === '#ffffff' ? '#cfe6ff' : s.glow],
+      ['B', 'SPECIAL', s.ult, 'CHARGES FROM YOUR KILLS', ultColor(s)],
+    ].map(([key, kind, a, foot, c]) => `<div class="abil" style="--ac:${c}"><span class="abil-ic">${icon(a.id)}</span><div><b><kbd>${key}</kbd>${esc(a.name)}</b><p>${esc(a.desc)}</p><small>${kind} · ${foot}</small></div></div>`).join('');
   }
   function syncMenuSkin() {
     const s = skinById(Settings.get('skin'));
@@ -880,7 +990,8 @@ const UI = (() => {
   function renderSkins() {
     const cur = Settings.get('skin');
     $('skinCount').textContent = String(SKINS.length);
-    $('skinGrid').innerHTML = SKINS.map((s) => `<button class="skin${s.id === cur ? ' on' : ''}" data-skin="${s.id}" style="--skin:${s.glow}" aria-pressed="${s.id === cur}"><img src="${s.img}" alt=""><b>${s.name}</b><span>${s.id === cur ? 'EQUIPPED' : 'EQUIP'}</span></button>`).join('');
+    const icon = (id) => (typeof ABILITY_ICONS !== 'undefined' && ABILITY_ICONS[id]) || '';
+    $('skinGrid').innerHTML = SKINS.map((s) => `<button class="skin${s.id === cur ? ' on' : ''}" data-skin="${s.id}" style="--skin:${s.glow}" aria-pressed="${s.id === cur}"><img src="${s.img}" alt=""><b>${s.name}</b><i class="skin-abs" title="${s.move.name} · ${s.ult.name}">${icon(s.move.id)}${icon(s.ult.id)}</i><span>${s.id === cur ? 'EQUIPPED' : 'EQUIP'}</span></button>`).join('');
     paintSkinStage(skinById(cur));
   }
   function equipSkin(id) {

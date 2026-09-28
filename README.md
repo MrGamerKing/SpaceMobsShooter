@@ -45,14 +45,30 @@ Up to 4 players can fight the waves and bosses together over the internet.
 
 In the game every ship keeps its own skin and a small name tag with its hearts. When a player loses a heart, a heart breaks above their ship; when they heal, a heart pops in.
 
-- The team shares the score, combo, Nova meter and power-ups (overdrive, shield, magnet and so on). Weapon stars, hearts and totems go to whoever grabs them.
+- Everyone keeps their own character's move and special. The team shares the score, combo, special meter and power-ups (overdrive, shield, magnet and so on). Weapon stars, hearts and totems go to whoever grabs them.
 - Mobs and bosses pick targets among the players, and their health grows with the size of the team.
 - A player who goes down can **spectate** their teammates (switching between them) or **leave**. In Arcade they warp back in at the start of the next wave. In Hardcore there are no respawns.
 - The run ends when the whole team is down. Everyone can then go **back to the lobby** and play again.
 - The pause menu doesn't stop a co-op game; it only opens the menu for you.
 - Co-op runs aren't saved as checkpoints. They go on the leaderboard with a **CO-OP** tag.
 
-**How it works:** there is no game server. The room creator (the host) runs the game on their own device, and the other players connect straight to them with WebRTC, using [PeerJS](https://peerjs.com) (MIT license, included as `peerjs.min.js`). PeerJS's free public service only introduces the players to each other, and relays the connection when a direct one isn't possible. So the host should keep the game open and in front while playing. Everyone needs an internet connection.
+**How it works:** there is no game server. The room creator (the host) runs the game on their own device, and the other players connect straight to them with WebRTC, using [PeerJS](https://peerjs.com) (MIT license, included as `peerjs.min.js`). PeerJS's free public service only introduces the players to each other. The game data then goes directly between devices, or through your relay server if you set one up (see below). So the host should keep the game open and in front while playing. Everyone needs an internet connection.
+
+### Playing with friends far away (different internet or mobile data)
+
+Players on the **same Wi-Fi** connect directly. Players on **different internet connections** often can't reach each other directly: many routers and mobile networks (especially "carrier NAT", common on 4G and on many home connections) block it. Then the game needs a **relay server** (called TURN) to pass the game data between you. Free public relays that need no sign-up no longer exist (PeerJS's old ones are gone), so set up your own free one:
+
+1. Make a free account with a relay provider, for example [ExpressTURN](https://www.expressturn.com) or [Metered](https://www.metered.ca/stun-turn). Check their current free-plan limits.
+2. Copy your relay details:
+   - **ExpressTURN:** the server address (like `turn:relay1.expressturn.com:3478`), username and password.
+   - **Metered:** the "TURN credentials" API link (`https://YOURAPP.metered.live/api/v1/turn/credentials?apiKey=…`), or an address with username and password.
+3. Put them in the game, in **one** of these two ways:
+   - **In the game (private):** MULTIPLAYER → the yellow **SET UP A RELAY** line (or Settings → Online → SETUP). Paste the details, press **TEST**, then **SAVE**. They're saved only on that device. The host having a relay is usually enough, but it works best if every player adds it.
+   - **For everyone (public):** put them in `netconfig.js` (`relayLink`, or an entry in `relays`) and upload it. Then every copy of your game uses the relay with no setup. Anything in that file is public on GitHub, so other people could use up your relay's free allowance.
+
+If a friend still can't join, the game says **"Found the room, but your two internet connections can't reach each other"**, with a button that opens the relay setup.
+
+Relays add a little delay, and the game only uses one when a direct connection isn't possible.
 
 The shared world is shaped to suit everyone's screens. On a very different screen (for example a phone held upright while the host uses a PC) the world is scaled to fit, with dark bars around it. Turning the phone sideways gives a bigger view.
 
@@ -71,8 +87,8 @@ The shared world is shaped to suit everyone's screens. On a very different scree
 | --- | --- | --- | --- |
 | Fly | WASD / arrows, or hold left click | Drag anywhere (the ship copies your finger's movement) | Left stick / D-pad |
 | Shoot | Automatic (toggle with **F**), or hold Space | Automatic | A / RT |
-| Dash (you can't be hit while dashing) | Shift / K | Flick (quick swipe) or the dash button | B / RB |
-| Nova bomb | B / right click | Two-finger tap or the nova button | X / Y / LB |
+| Move ability (your character's own) | Shift / K | Flick (quick swipe) or the move button | B / RB |
+| Special attack (your character's own) | B / right click | Two-finger tap or the special button | X / Y / LB |
 | Pause | Esc / P | Pause button | Start |
 
 The Settings screen switches touch controls to a floating joystick or a left-handed layout. It also sets your Arcade starting hearts (1–10) and difficulty.
@@ -109,9 +125,30 @@ To rebalance boss fights, edit the `DIFF` table near the top of `game.js` (boss 
 
 ## Skins
 
-Pick a look for your flyer on the **SKINS** screen in the main menu. Skins only change the look and the engine-trail colour. Your hitbox stays the same.
+Pick your character on the **SKINS** screen in the main menu. Each one has its own look, trail colour and **two abilities of its own**:
 
-Phantom (the original), Steve with an elytra, Alex with an enchanted elytra, Ender Dragon, Allay, Bee, Parrot, Bat, Blaze, Ghast and Nightmare Phantom.
+- **Move** (SHIFT, the dash button, a flick on touch, or B/RB on a gamepad), with its own cooldown.
+- **Special** (B, right click, the special button, a two-finger tap, or X/Y/LB on a gamepad), which uses the special meter.
+
+The two buttons in the corner show your character's icons. Your hitbox is the same for every character.
+
+| Character | Move (cooldown) | Special |
+| --- | --- | --- |
+| Phantom | **Phase Dash** (0.9s): a lightning-fast dash; nothing can hit you mid-dash | **Nova**: a screen-wide shockwave that wipes out bullets and hits every mob |
+| Steve | **Firework Boost** (1.6s): a long rocket boost that burns through mobs in your way | **TNT Rain**: lobs 8 lit TNT blocks onto the nearest mobs |
+| Alex | **Ender Pearl** (1.3s): teleport a short hop | **Enchanted Volley**: 30 homing enchanted arrows |
+| Ender Dragon | **Wing Gust** (2s): dash and blow away every enemy bullet around you | **Dragon Breath**: a column of purple fire for 3 seconds that melts mobs and bullets |
+| Allay | **Spirit Dash** (1.1s): a dash that pulls every pickup toward you | **Allay Choir**: heals 1 heart for the whole team, shields everyone for 4 seconds and calls the drones |
+| Bee | **Buzz** (0.45s): a tiny, quick hop that is ready again almost at once | **Bee Swarm**: 16 bees that chase down mobs |
+| Parrot | **Barrel Roll** (1.4s): spin through bullets and send them back at the mobs | **Rainbow Burst**: turns every enemy bullet into points and hits every mob |
+| Bat | **Night Flight** (2.4s): turn to shadow, fly faster, can't be hit, and darkness lifts | **Sonar Screech**: three sonic rings that smash mobs and bullets nearby |
+| Blaze | **Flame Dash** (1.3s): dash and leave a trail of fire that burns mobs | **Inferno**: three rings of fireballs in every direction |
+| Ghast | **Puff Up** (3s): a tough bubble that blocks everything for 1.6 seconds | **Mega Fireball**: one huge fireball that drifts to the nearest mob and explodes |
+| Nightmare Phantom | **Shadow Dive** (1.5s): a razor-fast dive that slashes every mob you pass | **Blood Moon**: for 5 seconds everything slows down and every mob keeps taking damage |
+
+**The special meter** fills only from mobs **you** kill and from grazing bullets. Kills made by a special (or by anything it sets off, like TNT or the Allay Choir's drones) never refill it. Against a boss, one special can take at most **5%** of its health (4% for the Nova), so bosses stay a real fight.
+
+To change an ability, edit the character in `skins.js` (name, description, cooldown) and its behaviour in the "character abilities" part of `game.js`.
 
 ## Features
 
@@ -132,7 +169,7 @@ Phantom (the original), Steve with an elytra, Alex with an enchanted elytra, End
   - Weapon stars (up to level 5, then +10% power each).
   - Overdrive, shield, magnet and 2x score.
   - **Time Warp** (clock), **Thunderstorm** (trident), **Allay drones** and **Totem of Undying** (an extra life).
-- The Nova bomb recharges only from mobs **you** kill and from grazing bullets. Kills made by the Nova itself don't recharge it.
+- 11 characters, each with its own move and special attack (see **Skins**). The special meter recharges only from mobs **you** kill and from grazing bullets.
 - A combo multiplier up to x8, perfect-wave bonuses, 22 trophies and a local high-score board.
 - Four space zones, mobs that shatter into pieces, screen shake, slow motion, and music and sound effects generated in code.
 
@@ -147,11 +184,12 @@ settings.js    saved settings, high scores, Arcade checkpoint and Hardcore chall
 trophies.js    trophies (achievements)
 audio.js       generated sound effects and music (Web Audio)
 input.js       keyboard, mouse, touch gestures, joystick and gamepad
-skins.js       the list of player skins
+skins.js       the 11 characters: looks, abilities and their button icons
 bosses.js      all 10 bosses and their attacks
 game.js        game engine: rendering, mobs, waves, power-ups and particles
 intro.js       startup intro (VarexGames, Made in Pakistan, title screen) and the game logo
-net.js         online co-op: rooms, passwords (SHA-256), lobby and messages
+net.js         online co-op: rooms, passwords (SHA-256), lobby, messages and relay (TURN) support
+netconfig.js   optional relay server for everyone who plays your copy (see "Playing with friends far away")
 peerjs.min.js  PeerJS 1.5.5 (MIT license), the WebRTC library net.js uses
 ui.js          menus, HUD updates, lobby and startup
 *.png          sprites and images
