@@ -19,14 +19,15 @@ const UI = (() => {
 
   const screens = {
     menu: $('scrMenu'), how: $('scrHow'), settings: $('scrSettings'), about: $('scrAbout'),
-    trophies: $('scrTrophies'), pause: $('scrPause'), over: $('scrOver'),
+    trophies: $('scrTrophies'), skins: $('scrSkins'), pause: $('scrPause'), over: $('scrOver'),
   };
-  const SUB_SCREENS = ['how', 'settings', 'about', 'trophies'];
+  const SUB_SCREENS = ['how', 'settings', 'about', 'trophies', 'skins'];
   const els = {
     hud: $('hud'), score: $('hudScore'), combo: $('hudCombo'), mult: $('hudMult'), comboBar: $('hudComboBar'),
     hits: $('hudHits'), pips: $('hudPips'), power: $('hudPower'), wave: $('hudWave'), waveProg: $('waveProg'), waveFill: $('waveProgFill'),
     hearts: $('hudHearts'), totem: $('hudTotem'), powers: $('hudPowers'),
     bossBar: $('bossBar'), bossName: $('bossName'), bossFill: $('bossFill'), bossLag: $('bossLag'),
+    bossShield: $('bossShield'), bossTicks: $('bossTicks'), bossHpText: $('bossHpText'), bossStatus: $('bossStatus'),
     abDash: $('abDash'), abNova: $('abNova'), fps: $('fps'), fxLow: $('fxLow'), fxWarp: $('fxWarp'),
   };
 
@@ -52,8 +53,15 @@ const UI = (() => {
   }
   function open(name) {
     if (name === 'trophies') renderTrophies();
+    if (name === 'skins') renderSkins();
     stack.push(current);
     show(name);
+    if (name === 'skins' && keyNav) {
+      setTimeout(() => {
+        const on = $('skinGrid').querySelector('.skin.on');
+        if (on && current === 'skins') on.focus({ preventScroll: true });
+      }, 100);
+    }
   }
   function back() {
     const prev = stack.pop() || (Game.state === 'paused' ? 'pause' : 'menu');
@@ -103,6 +111,7 @@ const UI = (() => {
     settings: () => open('settings'),
     about: () => open('about'),
     trophies: () => open('trophies'),
+    skins: () => open('skins'),
     back,
     resume: () => Game.resume(),
     menu: () => {
@@ -290,6 +299,21 @@ const UI = (() => {
       els.bossLag.style.transform = `scaleX(${bossLagV.toFixed(4)})`;
       els.bossBar.classList.toggle('enraged', h.bossPhase === 3);
       els.bossBar.classList.toggle('armored', h.bossArmor);
+      const sh = Math.round(h.bossShield * 200) / 200;
+      if (sh !== shown.bossShield) {
+        shown.bossShield = sh;
+        els.bossShield.style.transform = `scaleX(${sh})`;
+        els.bossBar.classList.toggle('shielded', sh > 0);
+      }
+      if (h.bossHp !== shown.bossHp) {
+        shown.bossHp = h.bossHp;
+        els.bossHpText.textContent = `${fmt(h.bossHp)} / ${fmt(h.bossMaxHp)}`;
+      }
+      if (h.bossStatus !== shown.bossStatus) {
+        shown.bossStatus = h.bossStatus;
+        els.bossStatus.textContent = h.bossStatus;
+        els.bossStatus.className = 'boss-status' + (h.bossStatus.startsWith('STUN') ? ' stun' : h.bossStatus === 'BERSERK' || h.bossStatus === 'LAST STAND' ? ' rage' : '');
+      }
     }
 
     // fps
@@ -300,14 +324,18 @@ const UI = (() => {
     }
   }
 
-  function bossBar(on, name) {
+  function bossBar(on, name, phases) {
     els.bossBar.classList.toggle('show', !!on);
     if (on) {
       els.bossName.textContent = name || 'BOSS';
       bossLagV = 1;
       els.bossFill.style.transform = 'scaleX(1)';
       els.bossLag.style.transform = 'scaleX(1)';
-      els.bossBar.classList.remove('enraged', 'armored');
+      els.bossShield.style.transform = 'scaleX(0)';
+      els.bossBar.classList.remove('enraged', 'armored', 'shielded');
+      // tick marks where the boss changes phase (and where Last Stand kicks in)
+      els.bossTicks.innerHTML = (phases || []).concat(0.1).map((p) => `<b style="left:${p * 100}%"></b>`).join('');
+      Object.assign(shown, { bossShield: -1, bossHp: -1, bossStatus: null });
     }
   }
   function letterbox(on) { $('letterbox').classList.toggle('on', !!on); }
@@ -476,6 +504,58 @@ const UI = (() => {
       return `<div class="trophy ${got ? 'got' : 'locked'}"><img src="${t.icon}" alt=""><div><b>${got ? '★ ' : ''}${t.name}</b><p>${t.desc}</p>${prog ? `<small>${prog}</small>` : ''}</div></div>`;
     }).join('');
   }
+  // ================================================================ skins
+  const skinById = (id) => SKINS.find((s) => s.id === id) || SKINS[0];
+  function paintSkinStage(s) {
+    const prev = $('skinPreview');
+    prev.src = s.img;
+    prev.style.setProperty('--ar', String(s.ar));
+    prev.classList.remove('pop');
+    void prev.offsetWidth;
+    prev.classList.add('pop');
+    $('scrSkins').style.setProperty('--skin', s.glow);
+    $('skinName').textContent = s.name;
+    $('skinDesc').textContent = s.desc;
+  }
+  function syncMenuSkin() {
+    const s = skinById(Settings.get('skin'));
+    $('menuSkin').src = s.img;
+  }
+  function renderSkins() {
+    const cur = Settings.get('skin');
+    $('skinCount').textContent = String(SKINS.length);
+    $('skinGrid').innerHTML = SKINS.map((s) => `<button class="skin${s.id === cur ? ' on' : ''}" data-skin="${s.id}" style="--skin:${s.glow}" aria-pressed="${s.id === cur}"><img src="${s.img}" alt=""><b>${s.name}</b><span>${s.id === cur ? 'EQUIPPED' : 'EQUIP'}</span></button>`).join('');
+    paintSkinStage(skinById(cur));
+  }
+  function equipSkin(id) {
+    if (id === Settings.get('skin')) { Sfx.play('click'); return; }
+    Settings.set('skin', id);
+    $('skinGrid').querySelectorAll('.skin').forEach((b) => {
+      const on = b.dataset.skin === id;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', String(on));
+      b.querySelector('span').textContent = on ? 'EQUIPPED' : 'EQUIP';
+    });
+    paintSkinStage(skinById(id));
+    syncMenuSkin();
+    Sfx.play('power');
+    toast(`${skinById(id).name} EQUIPPED`);
+  }
+  function initSkins() {
+    $('skinGrid').addEventListener('click', (e) => {
+      const b = e.target.closest('.skin');
+      if (b) equipSkin(b.dataset.skin);
+    });
+    $('skinGrid').addEventListener('focusin', (e) => {
+      const b = e.target.closest('.skin');
+      if (b) paintSkinStage(skinById(b.dataset.skin));
+    });
+    $('skinGrid').addEventListener('focusout', (e) => {
+      if (!$('skinGrid').contains(e.relatedTarget)) paintSkinStage(skinById(Settings.get('skin')));
+    });
+    syncMenuSkin();
+  }
+
   function renderBosses() {
     $('bossCards').innerHTML = Game.bossList().map((b) => `<div class="card"><img src="${b.img}.png" alt=""><div><b>${b.name}<span class="tag lvl">WAVE ${b.wave}</span></b><p>${b.desc}</p></div></div>`).join('');
   }
@@ -575,6 +655,7 @@ const UI = (() => {
     }
   }
   function onMenuNav(a) {
+    if (Intro.active) { Intro.poke(); return; }
     keyNav = true;
     if (!current) return;
     const el = document.activeElement;
@@ -658,19 +739,25 @@ const UI = (() => {
     bind();
     initSettings();
     initTabs();
+    initSkins();
     syncMute();
     refreshMenu();
-    await Game.load((p) => { $('loadFill').style.width = Math.round(p * 100) + '%'; });
-    if (document.fonts && document.fonts.load) {
-      try { await Promise.race([document.fonts.load('12px "Press Start 2P"'), wait(1500)]); } catch (_) { /* offline */ }
-    }
-    Game.init();
-    renderBosses();
+    Logo.mount($('menuLogo'), $('menuShine'));
+    // assets load while the studio splash plays
+    const ready = (async () => {
+      await Game.load((p) => Intro.progress(p));
+      if (document.fonts && document.fonts.load) {
+        try { await Promise.race([document.fonts.load('12px "Press Start 2P"'), wait(1500)]); } catch (_) { /* offline */ }
+      }
+      Game.init();
+      renderBosses();
+    })();
+    const hash = location.hash;
+    await Intro.run(ready, { skip: hash === '#play' || hash === '#about' || hash === '#nointro' });
     Sfx.music('menu');
-    $('loader').classList.add('done');
     show('menu');
-    if (location.hash === '#play') setTimeout(startGame, 250);
-    else if (location.hash === '#about') open('about');
+    if (hash === '#play') setTimeout(startGame, 250);
+    else if (hash === '#about') open('about');
   }
 
   boot();

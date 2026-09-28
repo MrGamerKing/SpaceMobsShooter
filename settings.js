@@ -19,6 +19,7 @@ const Settings = (() => {
     difficulty: 'normal',  // 'easy' | 'normal' | 'hard'
     hearts: 5,             // starting hearts, 1-10
     lefty: false,          // mirror touch buttons + joystick for left-handed play
+    skin: 'phantom',       // player skin id (see skins.js)
   };
 
   const data = { ...defaults };

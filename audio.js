@@ -236,6 +236,30 @@ const Sfx = (() => {
     trophy() {
       [0, 7, 12, 16, 19].forEach((n, i) => tone({ type: 'square', f: semi(660, n), d: 0.22, v: 0.045, lp: 4000, delay: i * 0.07 }));
     },
+    // ---- intro
+    brand() { // riser into a deep impact as the V lands, then a shimmering chord
+      noise({ type: 'bandpass', f: 300, f2: 3200, d: 0.95, v: 0.07, q: 3, a: 0.8 });
+      tone({ type: 'sine', f: 120, f2: 36, d: 1.1, v: 0.5, delay: 0.9 });
+      noise({ type: 'lowpass', f: 1400, f2: 120, d: 1.0, v: 0.22, delay: 0.9 });
+      [0, 7, 12, 19].forEach((n, i) => tone({ type: 'triangle', f: semi(440, n), d: 2.4, v: 0.028, a: 0.18, delay: 0.95 + i * 0.03 }));
+      tone({ type: 'sine', f: 1760, f2: 1980, d: 1.8, v: 0.015, a: 0.3, delay: 1.1 });
+    },
+    pk() { // soft rising chime over a warm pad
+      tone({ type: 'sine', f: semi(131, 0), d: 2.4, v: 0.06, a: 0.5 });
+      tone({ type: 'sine', f: semi(196, 0), d: 2.4, v: 0.035, a: 0.6 });
+      [0, 4, 7, 11, 14].forEach((n, i) => tone({ type: 'sine', f: semi(523, n), d: 1.5, v: 0.032, a: 0.02, delay: 0.25 + i * 0.1 }));
+    },
+    title() { // whoosh in, then a huge slam when the logo lands
+      noise({ type: 'bandpass', f: 500, f2: 4000, d: 0.5, v: 0.08, q: 1.5, a: 0.4 });
+      tone({ type: 'sine', f: 140, f2: 30, d: 1.4, v: 0.55, delay: 0.45 });
+      noise({ type: 'lowpass', f: 2200, f2: 150, d: 1.5, v: 0.28, delay: 0.45 });
+      [0, 7, 12, 16].forEach((n) => tone({ type: 'sawtooth', f: semi(110, n), d: 1.8, v: 0.04, lp: 1600, a: 0.01, delay: 0.45 }));
+      tone({ type: 'sine', f: 2093, d: 1.6, v: 0.018, a: 0.05, delay: 0.5 });
+    },
+    start() { // "press start" confirm
+      [0, 4, 7, 12, 16, 19, 24].forEach((n, i) => tone({ type: 'square', f: semi(392, n), d: 0.14, v: 0.04, lp: 3600, delay: i * 0.045 }));
+      noise({ type: 'highpass', f: 600, f2: 6000, d: 0.45, v: 0.07 });
+    },
   };
 
   function play(name, arg) {

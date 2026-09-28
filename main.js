@@ -15,6 +15,7 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      autoplayPolicy: 'no-user-gesture-required', // intro sounds + title music play without a click first
     },
   });
 

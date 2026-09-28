@@ -10,6 +10,16 @@ Made by **MrGamerKing** · [YouTube](https://www.youtube.com/@MrGamerKingOfficia
 - **On GitHub Pages:** upload the contents of this folder to a repository, go to **Settings → Pages**, pick **Deploy from a branch**, and choose `main` with the `/ (root)` folder. The game will be live at `https://<your-username>.github.io/<repo-name>/`.
 - **As a desktop app (Electron):** run `npm install`, then `npm start`.
 
+## Startup
+
+The game opens with an intro: the **VarexGames** studio logo, then **Made in Pakistan**, then the title screen with its music. Press any key, click or tap to go to the main menu. You can also press a key during the splash screens to skip them.
+
+The game logo is drawn in code (in `intro.js`), so it stays sharp on every screen size.
+
+Browsers only allow sound after your first click, tap or key press, so in a browser the music starts when you continue from the title screen (or earlier, if you clicked during the intro). The desktop app plays the intro sounds straight away.
+
+To skip the intro while testing, open `index.html#nointro`.
+
 ## Controls
 
 | Action | Keyboard / mouse | Touch | Gamepad |
@@ -40,6 +50,23 @@ A boss arrives every 5 waves, and each has its own attacks:
 | 50 | Phantom Overlord | Dive bombs, phantom swarms, walls of wind |
 
 After wave 50 the bosses return as **MK II**, then **MK III**, and so on. Each return brings a new colour, more HP, more bullets, faster attacks and new moves.
+
+**How boss fights work:**
+
+- **Health scales with your firepower.** On Normal a fight lasts about 30–40 seconds for the first bosses and about a minute for the later ones. Weapon upgrades still speed you up.
+- **Shields:** at every new phase the boss raises a shield. Break it to **stun** the boss for about 2.5 seconds; it takes ×1.5 damage while stunned, and it drops a heart (or a power-up if your hearts are full).
+- **Harassment and combos:** bosses fire aimed shots between attacks and chain attacks together in later phases. Below Hard, these shots leave a gap where you stand and only aim ahead of you in the final phase.
+- **Last Stand:** at 10% health every boss unleashes its own ultimate attack.
+- **Berserk:** if a fight drags on for a long time, the boss speeds up.
+- **Hard mode:** bosses have more HP, attack faster and fire extra bullets. From the second boss on, their heavy hits (beams, slams, lasers, charges) cost **2 hearts**.
+
+To rebalance boss fights, edit the `DIFF` table near the top of `game.js` (boss HP `bhp`, attack speed `tempo`, extra bullets `tier`, gap between pot-shots `harass`), or a boss's `hpw` value in `bosses.js`.
+
+## Skins
+
+Pick a look for your flyer on the **SKINS** screen in the main menu. Skins only change the look and the engine-trail colour. Your hitbox stays the same.
+
+Phantom (the original), Steve with an elytra, Alex with an enchanted elytra, Ender Dragon, Allay, Bee, Parrot, Bat, Blaze, Ghast and Nightmare Phantom.
 
 ## Features
 
@@ -75,11 +102,13 @@ settings.js    saved settings and high scores
 trophies.js    trophies (achievements)
 audio.js       generated sound effects and music (Web Audio)
 input.js       keyboard, mouse, touch gestures, joystick and gamepad
+skins.js       the list of player skins
 bosses.js      all 10 bosses and their attacks
 game.js        game engine: rendering, mobs, waves, power-ups and particles
+intro.js       startup intro (VarexGames, Made in Pakistan, title screen) and the game logo
 ui.js          menus, HUD updates and startup
 *.png          sprites and images
 main.js        Electron entry point for the desktop app
 ```
 
-For testing, open the browser console: `Game.debug.boss(4)` jumps straight to the Ender Dragon, and `Game.debug.god()` makes you invincible.
+For testing, open the browser console: `Game.debug.boss(4)` jumps straight to the Ender Dragon, and `Game.debug.god()` makes you invincible. `Game.debug.autopilot('dodge')` lets a simple bot fly and dodge; in god mode, `Game.debug.info().botHits` counts the hearts you would have lost.

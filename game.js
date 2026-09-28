@@ -157,11 +157,15 @@ const Game = (() => {
   };
   const POWER_POOL = ['booster', 'shield', 'magnet', 'potion', 'clock', 'trident', 'allay'];
   const BUFF_MAX = { overdrive: 8, shield: 10, magnet: 12, double: 12, timewarp: 7, storm: 8, drones: 14, fatigue: 6 };
+  // ehp/bspd/fire = mobs · bhp = boss health · tempo = boss attack speed · shield = boss shield (% of HP)
+  // tier = extra bullets per attack · harass = gap between a boss's aimed pot-shots (bigger = calmer)
   const DIFF = {
-    easy: { ehp: 0.8, bspd: 0.8, fire: 0.75, score: 0.75 },
-    normal: { ehp: 1, bspd: 1, fire: 1, score: 1 },
-    hard: { ehp: 1.3, bspd: 1.15, fire: 1.3, score: 1.5 },
+    easy: { ehp: 0.8, bspd: 0.85, fire: 0.75, score: 0.75, bhp: 0.6, tempo: 0.7, shield: 0.06, tier: -1, harass: 2.2 },
+    normal: { ehp: 1, bspd: 1, fire: 1, score: 1, bhp: 0.8, tempo: 0.85, shield: 0.08, tier: 0, harass: 1.75 },
+    hard: { ehp: 1.3, bspd: 1.1, fire: 1.3, score: 1.5, bhp: 1, tempo: 1, shield: 0.1, tier: 1, harass: 1.3 },
   };
+  // theoretical damage per second of each weapon level (level 5 includes the homing missiles)
+  const WEAPON_DPS = [0, 1 / 0.14, 2 / 0.13, 3 / 0.12, 4 / 0.115, 5 / 0.105 + 12.7];
   const MAX_HEARTS = 10;
   const WEAPONS = [null,
     { img: 'b1', size: 22, rate: 0.14, c: C.orange },
@@ -197,6 +201,7 @@ const Game = (() => {
   };
   const IMG = {};
   function load(onProgress) {
+    if (typeof SKINS !== 'undefined') SKINS.forEach((s) => { SRC[skinKey(s)] = s.img; });
     const keys = Object.keys(SRC);
     let done = 0;
     return Promise.all(keys.map((key) => new Promise((resolve) => {
@@ -209,6 +214,28 @@ const Game = (() => {
       img.src = SRC[key];
       IMG[key] = img;
     })));
+  }
+
+  // ---------------------------------------------------------------- skins
+  const skinKey = (s) => s.img.replace(/\.png$/i, '');
+  const DEFAULT_SKIN = { id: 'phantom', img: 'player.png', ar: 197 / 331, ws: 1, trail: ['#3ee6ff', '#508cff'], glow: '#3ee6ff' };
+  const hexCol = (h) => col(parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16));
+  let skin = DEFAULT_SKIN;
+  let skinSprite = 'player';
+  let skinTrail = [C.cyan, C.blue];
+  let skinGlow = C.cyan;
+  function applySkin() {
+    const list = typeof SKINS !== 'undefined' ? SKINS : [];
+    skin = list.find((s) => s.id === Settings.get('skin')) || list[0] || DEFAULT_SKIN;
+    skinSprite = skinKey(skin);
+    skinTrail = skin.trail.map(hexCol);
+    skinGlow = hexCol(skin.glow);
+    if (player) sizePlayer(player);
+  }
+  function sizePlayer(p) {
+    p.w = 96 * view.k * skin.ws;
+    p.h = p.w * skin.ar;
+    p.r = Math.max(4, 6.5 * view.k);
   }
 
   // ---- sprite cache: every image is pre-scaled once to its exact on-screen size
@@ -477,10 +504,13 @@ const Game = (() => {
   let hiQ = true;
   let maxParts = 1400;
   let godMode = false;
+  let simSpeed = 1;      // debug: run several updates per frame
+  let autoPilot = false; // debug: true = steer under the boss, 'dodge' = dodging bot
+  let botHits = 0; // debug: hearts the player would have lost while in god mode
   let lastT = 0;
   const hud = {
     score: 0, combo: 0, mult: 1, comboT: 0, hp: 5, maxHp: 5, weapon: 1, power: 1, nova: 0, dash: 1, wave: 0, buffs, debuffs,
-    boss: -1, bossPhase: 1, bossArmor: false, alive: true, fps: 60, totem: false, waveProg: -1,
+    boss: -1, bossPhase: 1, bossArmor: false, bossShield: 0, bossHp: 0, bossMaxHp: 0, bossStatus: '', alive: true, fps: 60, totem: false, waveProg: -1,
   };
 
   // ================================================================ resize
@@ -499,9 +529,7 @@ const Game = (() => {
     cache.clear();
     initBackground();
     if (player) {
-      player.w = 96 * view.k;
-      player.h = player.w * (197 / 331);
-      player.r = Math.max(4, 6.5 * view.k);
+      sizePlayer(player);
       clampPlayer();
     }
     if (state === 'paused') render();
@@ -979,9 +1007,9 @@ const Game = (() => {
 
   // ================================================================ player
   function makePlayer(hearts) {
-    const w = 96 * view.k;
+    const w = 96 * view.k * skin.ws;
     return {
-      x: view.w / 2, y: view.h + w, w, h: w * (197 / 331), r: Math.max(4, 6.5 * view.k),
+      x: view.w / 2, y: view.h + w, w, h: w * skin.ar, r: Math.max(4, 6.5 * view.k),
       vx: 0, vy: 0, tilt: 0, hp: hearts, maxHp: hearts, invuln: 0, weapon: 1, power: 1, fireT: 0.3,
       dashT: 0, dashCd: 0, dvx: 0, dvy: 0, knockT: 0, kvx: 0, kvy: 0, ghostT: 0, recoil: 0, alive: true, volley: 0, intro: 1, totem: false,
     };
@@ -1052,6 +1080,10 @@ const Game = (() => {
         p.y += p.vy * dt;
       }
     }
+    if (autoPilot && boss && p.intro === 0 && p.dashT <= 0) {
+      if (autoPilot === 'dodge') botSteer(dt, tired);
+      else p.x = damp(p.x, boss.x, 2.5, dt);
+    }
     if (p.intro === 0) {
       const b = bounds();
       if (p.x < b.minX || p.x > b.maxX) { p.x = clamp(p.x, b.minX, b.maxX); p.vx = 0; }
@@ -1064,7 +1096,7 @@ const Game = (() => {
     engineAcc += dt * (hiQ ? 70 : 28) * (od ? 1.6 : 1);
     while (engineAcc >= 1) {
       engineAcc -= 1;
-      P(p.x + rand(-4, 4) * k, p.y + p.h * 0.38, rand(-25, 25) * k - p.vx * 0.1, rand(170, 280) * view.vs, rand(0.16, 0.3), rand(5, 10) * k, od ? pick([C.purple, C.pink]) : pick([C.cyan, C.blue]), GLOW, 2);
+      P(p.x + rand(-4, 4) * k, p.y + p.h * 0.38, rand(-25, 25) * k - p.vx * 0.1, rand(170, 280) * view.vs, rand(0.16, 0.3), rand(5, 10) * k, od ? pick([C.purple, C.pink]) : pick(skinTrail), GLOW, 2);
     }
     if (p.totem && hiQ && Math.random() < dt * 5) P(p.x + rand(-0.4, 0.4) * p.w, p.y + rand(-0.3, 0.3) * p.h, 0, -40 * k, 0.6, 7 * k, C.gold, GLOW, 1);
     if (tired && hiQ && Math.random() < dt * 8) P(p.x + rand(-0.4, 0.4) * p.w, p.y, 0, 30 * k, 0.6, 8 * k, C.purple, GLOW, 1);
@@ -1109,6 +1141,59 @@ const Game = (() => {
     bullets.push({ x, y, vx: side * 280 * k, vy: -160 * view.vs, r: 10 * k, s, c: sprite('missile', s, s), col: C.green, dmg: 2 * player.power, pierce: 0, rot: 0, spin: 0, life: 2.4, homing: true, turn: 7, speed: 900 * view.vs, trail: 0, src: 'missile', last: null, dead: false });
   }
 
+  // debug only: a simple bot that dodges like an average player, used to measure boss difficulty
+  let botT = 0;
+  let botX = 0;
+  let botY = 0;
+  function botDanger(x, y) {
+    const k = view.k;
+    const p = player;
+    let d = 0;
+    for (const b of ebullets) {
+      if (b.dead) continue;
+      const R = b.r + p.r + 14 * k;
+      for (let t = 0; t <= 0.6; t += 0.15) {
+        const dx = b.x + b.vx * t - x;
+        const dy = b.y + b.vy * t - y;
+        const q = (dx * dx + dy * dy) / (R * R);
+        if (q < 4) d += Math.exp(-q) * (1 - t);
+      }
+    }
+    for (const e of enemies) {
+      if (e.dead) continue;
+      const R = Math.max(e.w, e.h) * 0.5 + p.r + 30 * k;
+      const q = dist2(e.x, e.y, x, y) / (R * R);
+      if (q < 2) d += (e.T.boss ? 3 : 1.5) * Math.exp(-q);
+      if (e.beams) for (const bm of e.beams) if (Math.abs(x - bm.x) < bm.w * 0.5 + p.r + 16 * k) d += 6;
+    }
+    for (const h of hazards) {
+      const R = h.r + p.r + 12 * k;
+      if (dist2(h.x, h.y, x, y) < R * R) d += 4;
+    }
+    return d;
+  }
+  function botSteer(dt, tired) {
+    const p = player;
+    const k = view.k;
+    botT -= dt;
+    if (botT <= 0) {
+      botT = 0.05;
+      const bb = bounds();
+      let best = Infinity;
+      for (let i = -3; i <= 3; i++) {
+        for (let j = -1; j <= 1; j++) {
+          const x = clamp(p.x + i * 55 * k, bb.minX, bb.maxX);
+          const y = clamp(p.y + j * 45 * k, bb.minY + view.h * 0.3, bb.maxY);
+          const s = botDanger(x, y) * 10 + Math.abs(x - boss.x) / view.w * 1.5 + Math.abs(y - view.h * 0.78) / view.h;
+          if (s < best) { best = s; botX = x; botY = y; }
+        }
+      }
+      if (botDanger(p.x, p.y) > 1.5 && p.dashCd <= 0) tryDash(botX - p.x || 1, botY - p.y);
+    }
+    const step = maxSpeed() * (tired ? 0.55 : 1) * dt;
+    p.x += clamp(botX - p.x, -step, step);
+    p.y += clamp(botY - p.y, -step, step);
+  }
   function tryDash(fx, fy) {
     const p = player;
     if (!p || !p.alive || p.intro > 0 || p.dashCd > 0 || p.dashT > 0) return;
@@ -1182,7 +1267,8 @@ const Game = (() => {
     for (const e of enemies) {
       if (e.dead || e.novaId === n.id || dist2(e.x, e.y, n.x, n.y) > r2) continue;
       e.novaId = n.id;
-      hurtEnemy(e, (e.T.boss ? 45 : 30) * player.power, e.x, e.y, 'nova');
+      // against bosses the Nova is capped at 4% of their health
+      hurtEnemy(e, e.T.boss ? Math.min(45 * player.power, e.maxHp * 0.04) : 30 * player.power, e.x, e.y, 'nova');
     }
     novaLock -= 1;
     for (const b of ebullets) {
@@ -1215,13 +1301,17 @@ const Game = (() => {
     ctx.globalCompositeOperation = 'source-over';
   }
 
-  function hurtPlayer() {
+  /** Boss heavy hits (beams, slams, body contact, lasers) cost 2 hearts on Hard. */
+  const heavyDmg = () => (diffKey === 'hard' && bossLevel >= 2 ? 2 : 1);
+  function hurtPlayer(dmg = 1) {
     const p = player;
     if (!p.alive || p.intro > 0) return 0;
     if (buffs.shield > 0) { Sfx.play('shield'); return 1; }
-    if (p.invuln > 0 || p.dashT > 0 || godMode) return 0;
-    p.hp -= 1;
-    p.invuln = 1.7;
+    if (p.invuln > 0 || p.dashT > 0) return 0;
+    if (godMode) { botHits += dmg; p.invuln = boss ? 2.1 : 1.7; return 0; } // counts would-be hits for testing
+    p.hp -= dmg;
+    if (dmg > 1) popup(p.x, p.y - p.h * 1.2, `-${dmg} HEARTS`, '#ff4d5e', 12, 1.2);
+    p.invuln = boss ? 2.1 : 1.7; // a little extra breathing room during boss fights
     wave.hurt = true;
     stats.damage += 1;
     if (combo >= 3) popup(p.x, p.y - p.h, 'COMBO LOST', '#ff4d5e', 10, 1);
@@ -1357,14 +1447,14 @@ const Game = (() => {
     const p = player;
     if (!p || !p.alive) return;
     const k = view.k;
-    const pc = sprite('player', p.w, p.h);
+    const pc = sprite(skinSprite, p.w, p.h);
     if (ghosts.length) {
-      const gc = sprite('player', p.w, p.h, 'cyan');
+      const gc = sprite(skinSprite, p.w, p.h, 'cyan');
       for (const g of ghosts) { ctx.globalAlpha = g.a; blit(gc, g.x, g.y, p.w, p.h, g.rot); }
     }
     const od = buffs.overdrive > 0;
     ctx.globalCompositeOperation = 'lighter';
-    glow(od ? C.purple : C.cyan, p.x, p.y + p.h * 0.1, p.w * 0.9, 0.33 + 0.08 * Math.sin(time * 6));
+    glow(od ? C.purple : skinGlow, p.x, p.y + p.h * 0.1, Math.max(p.w, p.h) * 0.9, 0.33 + 0.08 * Math.sin(time * 6));
     if (p.weapon >= 5) glow(C.gold, p.x, p.y, p.w * 1.1, 0.16 + 0.08 * Math.sin(time * 5));
     ctx.globalCompositeOperation = 'source-over';
     const blink = p.invuln > 0 && p.dashT <= 0 && Math.floor(time * 20) % 2 === 0;
@@ -1373,7 +1463,7 @@ const Game = (() => {
     blit(pc, p.x, p.y + p.recoil * 3 * k, p.w, p.h, p.tilt * 0.28, (1 - Math.abs(p.tilt) * 0.2) * flap, 1);
     if (debuffs.fatigue > 0) {
       ctx.globalAlpha = 0.3;
-      blit(sprite('player', p.w, p.h, 'purple'), p.x, p.y + p.recoil * 3 * k, p.w, p.h, p.tilt * 0.28, (1 - Math.abs(p.tilt) * 0.2) * flap, 1);
+      blit(sprite(skinSprite, p.w, p.h, 'purple'), p.x, p.y + p.recoil * 3 * k, p.w, p.h, p.tilt * 0.28, (1 - Math.abs(p.tilt) * 0.2) * flap, 1);
     }
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'lighter';
@@ -1565,9 +1655,23 @@ const Game = (() => {
       eShoot(x, y, Math.cos(a) * speed, Math.sin(a) * speed, kind, c);
     }
   }
-  /** n bullets in a fan aimed at the player. */
-  function fan(x, y, n, spread, speed, kind, c) {
-    const base = aimAt(x, y);
+  /** Aim where the player is heading, not where they are (capped so it can still be dodged). */
+  function leadAim(x, y, speed) {
+    const p = player;
+    const dx = p.x - x;
+    const dy = p.y - y;
+    const t = Math.hypot(dx, dy) / Math.max(1, speed);
+    const lim = 900 * view.k;
+    return Math.atan2(dy + clamp(p.vy, -lim, lim) * 0.75 * t, dx + clamp(p.vx, -lim, lim) * 0.75 * t);
+  }
+  /** n bullets in a fan aimed at the player (or at where they are heading when `lead` is set). */
+  let harassing = false;
+  function fan(x, y, n, spread, speed, kind, c, lead) {
+    // boss pot-shots: one bullet fewer below Hard (leaves a gap where you stand), and they only lead
+    // their aim on Hard or in a boss's final phase
+    if (harassing && diffKey !== 'hard') n = Math.max(1, n - 1);
+    if (lead && boss && diffKey !== 'hard' && (diffKey === 'easy' || boss.phase < 3)) lead = false;
+    const base = lead ? leadAim(x, y, speed) : aimAt(x, y);
     for (let i = 0; i < n; i++) {
       const a = base + (i - (n - 1) / 2) * spread;
       eShoot(x, y, Math.cos(a) * speed, Math.sin(a) * speed, kind, c);
@@ -1979,9 +2083,16 @@ const Game = (() => {
       e.x = damp(e.x, e.tx, 3, dt);
       e.y = damp(e.y, e.ty + Math.sin(e.t * 2 + e.ph) * 8 * view.k, 3, dt);
       e.rot += dt * 1.6;
+      // crystals fight back with aimed orbs
+      e.fire = (e.fire || rand(1.5, 3)) - dt * diff.tempo;
+      if (e.fire <= 0 && player.alive) {
+        fan(e.x, e.y, 2, 0.12, bulletSpeed(250), 'magic', C.pink);
+        e.fire = rand(2.6, 3.4);
+      }
       // End Crystals slowly heal the Ender Dragon while they live
-      if (boss && boss.kind === 'dragon' && boss.mode === 'fight' && boss.hp < boss.maxHp) {
-        boss.hp = Math.min(boss.maxHp, boss.hp + boss.maxHp * 0.01 * dt);
+      if (boss && boss.kind === 'dragon' && boss.mode === 'fight') {
+        const cap = boss.phase === 1 ? 1 : boss.def.phases[boss.phase - 2];
+        if (boss.hp < boss.maxHp * cap) boss.hp = Math.min(boss.maxHp * cap, boss.hp + boss.maxHp * 0.006 * dt);
       }
     },
     illusion(e, dt) {
@@ -1997,8 +2108,28 @@ const Game = (() => {
   // Boss definitions are in bosses.js. Every fight is a higher boss level:
   // more HP, faster attacks; each lap through all ten unlocks new moves (MK II, MK III...).
   const bossTypes = {};
-  const bossPace = (e) => (e.phase === 3 ? 1.35 : 1) * (1 + (e.level - 1) * 0.08);
-  const bossF = (e) => 1 + (e.level - 1) * 0.05;
+  // how fast a boss acts: phase, level, difficulty, and berserk / last-stand rage all speed it up
+  const bossPace = (e) => (e.phase === 3 ? 1.2 : e.phase === 2 ? 1.08 : 1) * (1 + Math.min(12, e.level - 1) * 0.035) * diff.tempo * (e.berserk ? 1.3 : 1) * (e.desperate ? 1.15 : 1);
+  const bossF = (e) => (1 + Math.min(12, e.level - 1) * 0.028) * (e.berserk ? 1.1 : 1);
+  /**
+   * Extra bullets/waves for attacks: grows with phase, lap (MK) and Hard mode.
+   * Phases add at most +1 (+2 on Hard), and Hard's bonus only starts from the second boss.
+   */
+  const bossTier = (e) => Math.max(0, Math.min(e.phase - 1, diffKey === 'hard' ? 2 : 1) + (e.mark - 1)
+    + (e.level >= 2 ? diff.tier : Math.min(0, diff.tier)) + (e.desperate ? 1 : 0));
+  /**
+   * Boss health: sized to how much damage you can deal, so a fight lasts about
+   * 45s for the first boss and grows to ~110s later — upgrades still help because
+   * it blends your real firepower with the firepower expected at that stage.
+   */
+  const bossSeconds = (level, mark) => Math.min(56, 30 + (level - 1) * 3.5) * (1 + (mark - 1) * 0.12);
+  function bossMaxHp(def, level, mark) {
+    const actual = WEAPON_DPS[player.weapon] * player.power;
+    const expected = (level === 1 ? WEAPON_DPS[3] : WEAPON_DPS[5]) * (1 + 0.12 * (level - 1));
+    const seconds = bossSeconds(level, mark);
+    const hp = ((actual + expected) / 2) * 0.8 * seconds * (def.hpw || 1) * diff.bhp;
+    return Math.round(Math.max(hp, def.hp * (1 + (level - 1) * 0.35) * diff.bhp));
+  }
   const nextBossDef = () => BK.ALL[BK.ORDER[bossLevel % BK.ORDER.length]];
 
   function spawnBoss() {
@@ -2012,18 +2143,19 @@ const Game = (() => {
     const h = def.h * k * big;
     const ty = Math.max(view.h * 0.12, view.w <= 640 ? 150 : 70) + h * 0.5;
     if (!bossTypes[kind]) bossTypes[kind] = { img: def.img, w: def.w, h: def.h, hp: def.hp, score: def.score, pal: def.pal, glow: def.glow, boss: true, name: def.name };
-    const hp = Math.round(def.hp * (1 + (bossLevel - 1) * 0.3) * diff.ehp);
+    const hp = bossMaxHp(def, bossLevel, mark);
     const e = {
       type: kind, kind, def, T: bossTypes[kind], x: view.w / 2, y: def.entry === 'drop' ? -h : ty, w, h, r: h * 0.45,
       hp, maxHp: hp, score: def.score, t: 0, spawn: 1, flash: 0, rot: 0, scale: 1, grow: def.entry === 'grow' ? 0 : 1, ph: 0,
       vx: 0, vy: 0, mode: 'enter', enterT: 0, inv: true, invT: 0, ty, phase: 1, atk: 2, mt: 0, mouth: 0, last: '',
       beams: [], queue: [], spiral: null, armor: false, dieT: 0, boomT: 0, level: bossLevel, mark, fr: 1, elite: false, novaId: 0, dead: false,
+      shield: 0, shieldMax: 0, stun: 0, fightT: 0, berserk: false, lastStand: false, desperate: false, harassT: 2,
     };
     e.title = def.name + (mark > 1 ? ` MK ${ROMAN[mark - 1] || mark}` : '');
     if (def.init) def.init(e);
     enemies.push(e);
     boss = e;
-    UI.bossBar(true, `${e.title} · LV ${bossLevel}`);
+    UI.bossBar(true, `${e.title} · LV ${bossLevel}`, def.phases);
     UI.letterbox(true);
     Sfx.play(bossLevel % 2 ? 'roar' : 'wither');
     shake(0.5);
@@ -2078,13 +2210,50 @@ const Game = (() => {
   function bossUpdate(e, dt) {
     if (bossIntro(e, dt)) return;
     const def = e.def;
+    const k = view.k;
     const hpR = e.hp / e.maxHp;
     const ph = hpR > def.phases[0] ? 1 : hpR > def.phases[1] ? 2 : 3;
-    if (ph !== e.phase) bossPhase(e, ph);
+    if (ph > e.phase) bossPhase(e, ph);
     if (e.invT > 0) { e.invT -= dt; if (e.invT <= 0) e.inv = false; }
+    if (e.mouth > 0) e.mouth -= dt;
+
+    // Last Stand: at 10% health every boss unleashes its ultimate
+    if (!e.lastStand && hpR <= 0.1) {
+      e.lastStand = true;
+      e.desperate = true;
+      clearBossMoves(e);
+      e.inv = true;
+      e.invT = 2.2;
+      e.stun = 0;
+      Sfx.play(bossLevel % 2 ? 'roar' : 'wither');
+      shake(1);
+      slowmo(0.5, 0.4);
+      UI.flash('hurt');
+      P(e.x, e.y, 0, 0, 1, 460 * k, C.red, RING);
+      if (def.ultimate) def.ultimate(e);
+    }
+    // Berserk: drag a fight out and the boss gets faster and angrier
+    e.fightT += dt;
+    const berserkAt = bossSeconds(e.level, e.mark) * 2.2 * diff.bhp * (diffKey === 'hard' ? 0.9 : 1);
+    if (!e.berserk && e.fightT > berserkAt) {
+      e.berserk = true;
+      UI.banner('BERSERK!', 'IT GROWS FASTER — FINISH IT!', 'warning', 1800);
+      Sfx.play(bossLevel % 2 ? 'roar' : 'wither');
+      shake(0.8);
+    }
+
+    // Stunned after its shield breaks: no attacks, and it takes extra damage
+    if (e.stun > 0) {
+      e.stun -= dt;
+      e.x += Math.sin(e.t * 50) * 1.2 * k;
+      e.y = damp(e.y, e.ty, 3, dt);
+      updateBeams(e, dt);
+      if (e.stun <= 0) { e.atk = 0.4; e.harassT = 0.8; }
+      return;
+    }
+
     const pace = bossPace(e);
     e.mt += dt * pace;
-    if (e.mouth > 0) e.mouth -= dt;
     def.tick(e, dt);
     if (e.queue.length) {
       e.queue[0].t -= dt;
@@ -2092,6 +2261,18 @@ const Game = (() => {
     }
     updateBeams(e, dt);
     updateSpiral(e, dt);
+
+    // harassment fire between (and during) attacks — there is never a safe moment
+    if (def.harass && player.alive && !e.spiral && !e.beams.length) {
+      e.harassT -= dt * pace;
+      if (e.harassT <= 0) {
+        harassing = true;
+        def.harass(e);
+        harassing = false;
+        e.harassT = (def.harassRate || 1.2) * diff.harass;
+      }
+    }
+
     if (!e.queue.length && !e.beams.length && !e.spiral && !def.busy(e) && !e.inv) {
       e.atk -= dt * pace;
       if (e.atk <= 0) {
@@ -2100,25 +2281,51 @@ const Game = (() => {
         if (a === e.last) a = pick(list);
         e.last = a;
         def.attack(e, a);
+        // combos: in later phases an attack flows straight into the next one
+        const combo = (e.phase - 1) * 0.14 + (e.mark - 1) * 0.08 + (diffKey === 'hard' ? 0.1 : 0) + (e.desperate ? 0.15 : 0);
+        if (Math.random() < combo) e.atk = Math.min(e.atk, 0.15);
       }
     }
+  }
+  /** Cancel whatever the boss is doing (phase change, shield break, last stand). */
+  function clearBossMoves(e) {
+    e.beams.length = 0;
+    e.queue.length = 0;
+    e.spiral = null;
+    for (const key of ['charge', 'dash', 'swoop', 'rush', 'hop']) if (e[key]) e[key] = null;
+    if (e.lasers) e.lasers.length = 0;
   }
   function bossPhase(e, ph) {
     const def = e.def;
     e.phase = ph;
     e.inv = true;
     e.invT = 1;
-    e.beams.length = 0;
-    e.queue.length = 0;
-    e.spiral = null;
-    for (const key of ['charge', 'dash', 'swoop', 'rush', 'hop']) if (e[key]) e[key] = null;
-    if (e.lasers) e.lasers.length = 0;
+    clearBossMoves(e);
+    // every new phase comes with a fresh shield that has to be broken first
+    e.shield = e.shieldMax = Math.round(e.maxHp * diff.shield * (1 + (e.mark - 1) * 0.2));
     Sfx.play(bossLevel % 2 ? 'roar' : 'wither');
     shake(0.7);
     const txt = def.phaseText && def.phaseText[ph];
-    if (txt) UI.banner(txt[0], txt[1], 'phase', 1700);
+    if (txt) UI.banner(txt[0], `${txt[1]}  ·  BREAK ITS SHIELD!`, 'phase', 1900);
     P(e.x, e.y, 0, 0, 0.9, 380 * view.k, ph === 3 ? C.red : MARK_GLOW[e.mark] || def.glow, RING);
     if (def.onPhase) def.onPhase(e, ph);
+  }
+  function breakShield(e) {
+    const k = view.k;
+    e.shield = 0;
+    clearBossMoves(e);
+    e.stun = diffKey === 'hard' ? 2.1 : 2.7;
+    popup(e.x, e.y - e.h * 0.4, 'SHIELD BROKEN!', '#8fd8ff', 14, 1.6);
+    // reward: a heart if you're hurt, otherwise a random power-up
+    spawnPickup(player.hp < player.maxHp ? 'heart' : pick(POWER_POOL), e.x, e.y + e.h * 0.3);
+    burst(e.x, e.y, C.cyan, hiQ ? 30 : 12, 420);
+    P(e.x, e.y, 0, 0, 0.7, Math.max(e.w, e.h) * 0.9, C.cyan, RING);
+    P(e.x, e.y, 0, 0, 0.5, Math.max(e.w, e.h) * 0.7, C.white, GLOW);
+    Sfx.play('explode', 1.6);
+    Sfx.play('levelup');
+    shake(0.6);
+    slowmo(0.35, 0.4);
+    Input.vibrate([40, 30, 60]);
   }
   function spiral(e, o) {
     e.spiral = { t: o.time, arms: o.arms, twin: !!o.twin, kind: o.kind, speed: o.speed, oy: o.oy || 0, rate: o.rate || 0.1, cd: 0, a: rand(TAU) };
@@ -2158,7 +2365,7 @@ const Game = (() => {
         if (!b.fired) { b.fired = true; Sfx.play('beam'); shake(0.5); Input.vibrate(40); }
         if (b.sweep) b.x += b.vx * dt;
         const top = b.sky ? 0 : e.y;
-        if (p.alive && Math.abs(p.x - b.x) < b.w * 0.45 + p.r && p.y > top) hurtPlayer();
+        if (p.alive && Math.abs(p.x - b.x) < b.w * 0.45 + p.r && p.y > top) hurtPlayer(heavyDmg());
         if (hiQ || Math.random() < 0.5) P(b.x + rand(-b.w / 2, b.w / 2), view.h, rand(-100, 100) * k, -rand(100, 420) * k, 0.4, rand(2, 3.5) * k, b.pal === 'fire' ? C.orange : C.cyan, SPARK, 2);
       } else if (b.t >= b.warn + b.fire) {
         b.done = true;
@@ -2333,6 +2540,17 @@ const Game = (() => {
     let armored = false;
     if (e.type === 'shulker' && e.open < 0.5 && src !== 'nova' && src !== 'storm') { dmg *= 0.25; armored = true; }
     if (e.armor && src === 'bullet') { dmg *= 0.5; armored = true; }
+    if (e.T.boss) {
+      if (e.stun > 0) dmg *= 1.5;
+      // a boss shield soaks every hit until it breaks
+      if (e.shield > 0) {
+        e.shield -= dmg;
+        spark(hx, hy, C.cyan, hiQ ? 2 : 1);
+        Sfx.play('armor');
+        if (e.shield <= 0) breakShield(e);
+        return;
+      }
+    }
     e.hp -= dmg;
     if (!e.T.boss) e.flash = 0.1;
     else if (!(e.flashCd > 0)) { e.flash = 0.06; e.flashCd = 0.16; } // bosses blink briefly instead of staying white under fire
@@ -2344,7 +2562,7 @@ const Game = (() => {
       P(hx, hy, Math.cos(a) * sp, Math.sin(a) * sp, rand(0.12, 0.25), rand(1.5, 2.6) * view.k, armored ? C.grey : pick(e.T.pal), SPARK, 4);
     }
     Sfx.play(armored ? 'armor' : 'hit');
-    if (e.T.boss && chargesNova(src)) nova = Math.min(100, nova + 0.12);
+    if (e.T.boss && chargesNova(src)) nova = Math.min(100, nova + 0.1);
     if (e.hp <= 0) killEnemy(e, src);
   }
   function killEnemy(e, src) {
@@ -2527,7 +2745,9 @@ const Game = (() => {
           creeperBlast(e, false);
           continue;
         }
-        const res = hurtPlayer();
+        // touching a boss only costs 2 hearts (Hard) while it is diving / charging / slamming at you
+        const lunging = e.T.boss && (e.charge || e.swoop || e.rush || e.hop || e.dash);
+        const res = hurtPlayer(lunging ? heavyDmg() : 1);
         if (res && !e.T.boss) hurtEnemy(e, res === 1 ? 8 : 3, e.x, e.y, 'ram');
       }
       if (e.T.boss || e.dead || e.T.persist) continue;
@@ -2687,6 +2907,54 @@ const Game = (() => {
       ctx.ellipse(e.x, e.y, e.w * 0.56, e.h * 0.6, 0, 0, TAU);
       ctx.stroke();
       ctx.setLineDash([]);
+    }
+    if (e.shield > 0 && e.mode === 'fight') {
+      // shimmering energy bubble — shows how much shield is left
+      const f = e.shield / Math.max(1, e.shieldMax);
+      const rx = e.w * 0.62;
+      const ry = e.h * 0.66;
+      ctx.globalCompositeOperation = 'lighter';
+      glow(C.cyan, e.x, e.y, Math.max(rx, ry) * 1.1, 0.12 + 0.12 * f);
+      world();
+      ctx.globalAlpha = 0.35 + 0.45 * f;
+      ctx.strokeStyle = '#8fe9ff';
+      ctx.lineWidth = (2 + 3 * f) * k;
+      ctx.beginPath();
+      ctx.ellipse(e.x, e.y, rx, ry, 0, 0, TAU);
+      ctx.stroke();
+      ctx.lineWidth = 3 * k;
+      ctx.strokeStyle = '#ffffff';
+      for (let i = 0; i < 4; i++) {
+        const a0 = time * 1.6 + (i * TAU) / 4;
+        ctx.beginPath();
+        ctx.ellipse(e.x, e.y, rx + 6 * k, ry + 6 * k, 0, a0, a0 + 0.5 * f + 0.1);
+        ctx.stroke();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    if (e.stun > 0) {
+      // dizzy stars circling above its head
+      world();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#ffe066';
+      for (let i = 0; i < 5; i++) {
+        const a = time * 4 + (i * TAU) / 5;
+        const x = e.x + Math.cos(a) * e.w * 0.35;
+        const y = e.y - e.h * 0.55 + Math.sin(a) * 10 * k;
+        ctx.beginPath();
+        for (let j = 0; j < 10; j++) {
+          const r = (j % 2 ? 3 : 8) * k;
+          const b = (j / 10) * TAU - Math.PI / 2;
+          if (j === 0) ctx.moveTo(x + Math.cos(b) * r, y + Math.sin(b) * r); else ctx.lineTo(x + Math.cos(b) * r, y + Math.sin(b) * r);
+        }
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    if (e.berserk && e.mode === 'fight') {
+      ctx.globalCompositeOperation = 'lighter';
+      glow(C.red, e.x, e.y, Math.max(e.w, e.h) * 0.85, 0.25 + 0.15 * Math.sin(time * 10));
+      ctx.globalCompositeOperation = 'source-over';
     }
     ctx.globalAlpha = 1;
   }
@@ -3588,6 +3856,10 @@ const Game = (() => {
     hud.boss = boss ? Math.max(0, boss.hp / boss.maxHp) : -1;
     hud.bossPhase = boss ? boss.phase : 1;
     hud.bossArmor = !!(boss && boss.armor);
+    hud.bossShield = boss && boss.shieldMax ? Math.max(0, boss.shield / boss.shieldMax) : 0;
+    hud.bossHp = boss ? Math.max(0, Math.ceil(boss.hp)) : 0;
+    hud.bossMaxHp = boss ? boss.maxHp : 0;
+    hud.bossStatus = !boss ? '' : boss.mode === 'enter' ? 'INCOMING' : boss.stun > 0 ? 'STUNNED · x1.5 DMG' : boss.lastStand && boss.inv ? 'LAST STAND' : boss.shield > 0 ? 'SHIELDED' : boss.berserk ? 'BERSERK' : boss.armor ? 'ARMORED' : '';
     hud.fps = fps;
     return hud;
   }
@@ -3611,7 +3883,7 @@ const Game = (() => {
     const dt = raw * ts;
     time += dt;
 
-    update(dt, raw);
+    for (let i = 0; i < simSpeed; i++) update(dt, raw);
     render();
     if (state !== 'menu') UI.frame(fillHud(), raw);
     Input.endFrame();
@@ -3625,7 +3897,10 @@ const Game = (() => {
     time: () => time,
     hiQ: () => hiQ,
     P, SPARK, CUBE, GLOW, RING, SMOKE, spark, burst, explode, shake, slowmo, popup,
-    eShoot, ring, fan, spiral, makeBeam, spawnEnemy, countType, bulletSpeed, bossF, aimAt, hurtPlayer, knockPlayer, addHazard,
+    eShoot, ring, fan, spiral, makeBeam, spawnEnemy, countType, bulletSpeed, bossF, aimAt, leadAim, hurtPlayer, knockPlayer, addHazard,
+    tier: bossTier,
+    hard: () => diffKey === 'hard',
+    heavy: heavyDmg,
     setDark: (t) => { darkT = Math.max(darkT, t); },
     isDark: () => darkT > 0,
     setFatigue: (t) => { debuffs.fatigue = Math.max(debuffs.fatigue, t); },
@@ -3637,10 +3912,14 @@ const Game = (() => {
     load,
     init() {
       BK = BossKit(api);
+      applySkin();
       resize();
       window.addEventListener('resize', resize);
       window.addEventListener('orientationchange', () => setTimeout(resize, 150));
-      Settings.onChange((key) => { if (key === 'quality') resize(); });
+      Settings.onChange((key) => {
+        if (key === 'quality') resize();
+        if (key === 'skin') applySkin();
+      });
       Input.init(canvas, {
         player: () => player || { x: view.w / 2, y: view.h * 0.8 },
         bounds,
@@ -3665,6 +3944,9 @@ const Game = (() => {
     // handy for testing from the console, e.g. Game.debug.boss(4) to fight the Ender Dragon
     debug: {
       god(on = true) { godMode = on; },
+      speed(n = 1) { simSpeed = clamp(Math.round(n), 1, 8); },
+      autopilot(on = true) { autoPilot = on; },
+      power(v) { if (player) player.power = v; },
       wave(n) {
         for (const e of enemies) e.dead = true;
         boss = null;
@@ -3683,14 +3965,15 @@ const Game = (() => {
       nova() { nova = 100; },
       buff(name) { buffs[name] = BUFF_MAX[name]; if (name === 'drones') resetDrones(); },
       hurt() { if (player) { player.invuln = 0; hurtPlayer(); } },
-      bossHp(frac) { if (boss) boss.hp = boss.maxHp * frac; },
+      bossHp(frac) { if (boss) { boss.hp = boss.maxHp * frac; boss.shield = 0; } },
+      breakShield() { if (boss && boss.shield > 0) breakShield(boss); },
       attack(name) { if (boss && boss.mode === 'fight') { boss.atk = 99; boss.def.attack(boss, name); } },
       die() { if (player && player.alive) { godMode = false; buffs.shield = 0; player.totem = false; player.hp = 1; player.invuln = 0; player.dashT = 0; hurtPlayer(); } },
       player() { return player && { x: player.x, y: player.y, hp: player.hp, maxHp: player.maxHp, weapon: player.weapon, power: player.power, alive: player.alive, totem: player.totem }; },
       info() {
         return {
-          state, enemies: enemies.length, bullets: bullets.length, ebullets: ebullets.length, hazards: hazards.length, parts: parts.length, wave: wave.n, hpMul: wave.hpMul, score, fps, nova,
-          dashes: stats && stats.dashes, novas: stats && stats.novas, bossLevel, boss: boss && { kind: boss.kind, mode: boss.mode, phase: boss.phase, hp: Math.round(boss.hp), maxHp: boss.maxHp, mark: boss.mark, title: boss.title },
+          state, botHits, enemies: enemies.length, bullets: bullets.length, ebullets: ebullets.length, hazards: hazards.length, parts: parts.length, wave: wave.n, hpMul: wave.hpMul, score, fps, nova,
+          dashes: stats && stats.dashes, novas: stats && stats.novas, bossLevel, boss: boss && { kind: boss.kind, mode: boss.mode, phase: boss.phase, hp: Math.round(boss.hp), maxHp: boss.maxHp, mark: boss.mark, title: boss.title, shield: Math.round(boss.shield), stun: +boss.stun.toFixed(2), lastStand: boss.lastStand, berserk: boss.berserk, fightT: Math.round(boss.fightT) },
           types: [...new Set(enemies.map((e) => e.type))],
         };
       },
