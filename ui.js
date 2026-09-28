@@ -21,8 +21,9 @@ const UI = (() => {
     menu: $('scrMenu'), how: $('scrHow'), settings: $('scrSettings'), about: $('scrAbout'),
     trophies: $('scrTrophies'), skins: $('scrSkins'), pause: $('scrPause'), over: $('scrOver'),
     modes: $('scrModes'), arcade: $('scrArcade'), hardcore: $('scrHardcore'),
+    mp: $('scrMp'), create: $('scrCreate'), join: $('scrJoin'), lobby: $('scrLobby'), down: $('scrDown'), netMsg: $('scrNetMsg'),
   };
-  const SUB_SCREENS = ['how', 'settings', 'about', 'trophies', 'skins', 'modes', 'arcade', 'hardcore'];
+  const SUB_SCREENS = ['how', 'settings', 'about', 'trophies', 'skins', 'modes', 'arcade', 'hardcore', 'mp', 'create', 'join'];
   const TIER = Object.fromEntries(HARDCORE_TIERS.map((t) => [t.id, t]));
   const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
   const els = {
@@ -32,6 +33,7 @@ const UI = (() => {
     bossBar: $('bossBar'), bossName: $('bossName'), bossFill: $('bossFill'), bossLag: $('bossLag'),
     bossShield: $('bossShield'), bossTicks: $('bossTicks'), bossHpText: $('bossHpText'), bossStatus: $('bossStatus'),
     abDash: $('abDash'), abNova: $('abNova'), fps: $('fps'), fxLow: $('fxLow'), fxWarp: $('fxWarp'),
+    specBar: $('specBar'), specName: $('specName'),
   };
 
   let current = null;
@@ -121,8 +123,30 @@ const UI = (() => {
     startGame(cp ? { mode: 'arcade', checkpoint: cp } : { mode: 'arcade' });
   }
 
+  function hideSpec() {
+    els.specBar.classList.remove('show');
+    body.classList.remove('spectating');
+    shown.spec = '';
+  }
+  /** Stop the current run (single player or co-op) and clear the in-game UI. */
+  function leaveGame() {
+    Game.toMenu();
+    stack = [];
+    specOn = false;
+    els.hud.classList.remove('show');
+    body.classList.remove('playing');
+    bossBar(false);
+    letterbox(false);
+    els.fxLow.classList.remove('on');
+    els.fxWarp.classList.remove('on');
+    hideSpec();
+    $('hint').classList.remove('show');
+    refreshMenu();
+  }
+
   let resetArmed = 0;
   let newArmed = 0;
+  let specOn = false;
   const actions = {
     play: () => open('modes'),
     arcade: () => open('arcade'),
@@ -153,19 +177,39 @@ const UI = (() => {
     skins: () => open('skins'),
     back,
     resume: () => Game.resume(),
-    menu: () => {
-      Game.toMenu();
-      stack = [];
-      els.hud.classList.remove('show');
-      body.classList.remove('playing');
-      bossBar(false);
-      letterbox(false);
-      els.fxLow.classList.remove('on');
-      els.fxWarp.classList.remove('on');
-      $('hint').classList.remove('show');
-      refreshMenu();
-      show('menu');
+    menu: () => { leaveGame(); show('menu'); },
+
+    // ---- multiplayer
+    mp: () => open('mp'),
+    mpCreate: () => { prefill('formCreate'); open('create'); },
+    mpJoin: () => { prefill('formJoin'); open('join'); },
+    lobbyStart: () => {
+      if (Net.role !== 'host') return;
+      const world = Game.netWorld(Net.roster.map((r) => r.ar));
+      const roster = Net.startGame();
+      if (!roster) return;
+      const settings = { ...Net.settings };
+      Net.broadcast({ t: 'start', world, roster, settings });
+      launchNet('host', { world, roster, settings });
     },
+    kick: (btn) => { const pid = +btn.dataset.pid; if (pid) Net.kick(pid); },
+    leaveRoom: () => {
+      Net.leave();
+      if (Game.state !== 'menu') leaveGame();
+      stack = [];
+      show('menu');
+      toast('LEFT THE ROOM');
+    },
+    lobbyBack: () => {
+      // after a co-op run: everyone goes back to the room together
+      leaveGame();
+      if (Net.role === 'host') Net.backToLobby();
+      showLobby();
+    },
+    spectate: () => { specOn = true; show(null); Game.spectate(0); },
+    specPrev: () => { Game.spectate(-1); },
+    specNext: () => { Game.spectate(1); },
+    netMsgOk: () => { stack = []; show('menu'); },
     quit: () => window.close(),
     fullscreen: toggleFullscreen,
     mute: () => { const m = Sfx.toggleMute(); syncMute(); toast(m ? 'SOUND OFF' : 'SOUND ON'); },
@@ -187,7 +231,7 @@ const UI = (() => {
   };
 
   // ================================================================ HUD
-  const shown = { score: -1, comboOn: false, mult: 0, combo: -1, hp: -1, maxHp: -1, weapon: -1, power: -1, wave: -1, low: false, prog: -2, totem: null, warp: false };
+  const shown = { score: -1, comboOn: false, mult: 0, combo: -1, hp: -1, maxHp: -1, weapon: -1, power: -1, wave: -1, low: false, prog: -2, totem: null, warp: false, spec: '' };
   let dispScore = 0;
   let lastScore = 0;
   let lastBump = 0;
@@ -292,6 +336,14 @@ const UI = (() => {
       shown.maxHp = h.maxHp;
     }
     if (h.totem !== shown.totem) { shown.totem = h.totem; els.totem.classList.toggle('on', h.totem); }
+    // co-op: watching a teammate after going down
+    const spec = specOn && h.spectating ? h.spectating : '';
+    if (spec !== shown.spec) {
+      shown.spec = spec;
+      els.specBar.classList.toggle('show', !!spec);
+      body.classList.toggle('spectating', !!spec);
+      if (spec) els.specName.textContent = spec;
+    }
     const low = h.alive && h.hp === 1;
     if (low !== shown.low) { shown.low = low; els.fxLow.classList.toggle('on', low); }
     const warp = h.buffs.timewarp > 0;
@@ -455,7 +507,7 @@ const UI = (() => {
     show(null);
     els.hearts.innerHTML = '';
     for (const key in chips) { chips[key].remove(); delete chips[key]; }
-    Object.assign(shown, { score: -1, comboOn: false, mult: 0, combo: -1, hp: -1, maxHp: -1, weapon: -1, power: -1, wave: -1, low: false, prog: -2, totem: null, warp: false });
+    Object.assign(shown, { score: -1, comboOn: false, mult: 0, combo: -1, hp: -1, maxHp: -1, weapon: -1, power: -1, wave: -1, low: false, prog: -2, totem: null, warp: false, spec: '' });
     dispScore = 0;
     lastScore = 0;
     els.combo.classList.remove('on');
@@ -465,6 +517,8 @@ const UI = (() => {
     letterbox(false);
     $('banner').className = 'banner';
     els.hud.classList.add('show');
+    hideSpec();
+    specOn = false;
     body.classList.add('playing');
     if (Scores.lifetime().runs < 6) showHint();
   }
@@ -472,9 +526,14 @@ const UI = (() => {
     $('pauseWave').textContent = info.wave || 1;
     $('pauseScore').textContent = fmt(info.score);
     const hc = info.mode === 'hardcore' && TIER[info.tier];
-    $('pauseDiff').textContent = hc ? `☠ ${hc.name} · ${info.hearts}♥` : `${DIFF_LABEL[info.difficulty] || 'NORMAL'} · ${info.hearts}♥`;
-    const cp = !hc && Checkpoint.get();
+    $('pauseDiff').textContent = `${info.mp ? 'CO-OP · ' : ''}${hc ? `☠ ${hc.name}` : DIFF_LABEL[info.difficulty] || 'NORMAL'} · ${info.hearts}♥`;
+    const cp = !hc && !info.mp && Checkpoint.get();
     $('btnRestart').textContent = hc ? 'RESTART FROM WAVE 1' : cp ? `LAST CHECKPOINT · WAVE ${cp.wave}` : 'RESTART';
+    // co-op: the run belongs to the whole team, so there's no restart, only leaving
+    $('btnRestart').classList.toggle('hidden', !!info.mp);
+    $('btnPauseMenu').textContent = info.mp ? 'LEAVE GAME' : 'MAIN MENU';
+    $('btnPauseMenu').dataset.act = info.mp ? 'leaveRoom' : 'menu';
+    $('pauseMpNote').classList.toggle('hidden', !info.mp);
     stack = [];
     show('pause');
   }
@@ -527,14 +586,21 @@ const UI = (() => {
       ['WAVE', r.wave], ['MOBS', fmt(r.kills)], ['BOSSES', r.bosses],
       ['MAX COMBO', r.maxCombo], ['TIME', `${mins}:${secs}`], ['MODE', hc ? '☠ ' + hc.name : DIFF_LABEL[r.difficulty] || 'NORMAL'],
     ];
-    $('overPrimary').textContent = hc ? 'TRY AGAIN' : r.checkpoint ? `CONTINUE · WAVE ${r.checkpoint.wave}` : 'PLAY AGAIN';
+    $('overPrimary').textContent = r.mp ? 'BACK TO LOBBY' : hc ? 'TRY AGAIN' : r.checkpoint ? `CONTINUE · WAVE ${r.checkpoint.wave}` : 'PLAY AGAIN';
+    $('overPrimary').dataset.act = r.mp ? 'lobbyBack' : 'restart';
+    $('overSecondary').textContent = r.mp ? 'LEAVE ROOM' : 'MAIN MENU';
+    $('overSecondary').dataset.act = r.mp ? 'leaveRoom' : 'menu';
+    $('scrOver').querySelector('.over-title').textContent = r.mp ? 'TEAM WIPED OUT' : 'SHIP DESTROYED';
+    specOn = false;
+    hideSpec();
     $('overStats').innerHTML = stats.map(([l, v], i) => `<div class="stat" style="--i:${i}"><small>${l}</small><b>${v}</b></div>`).join('');
     $('overTrophiesWrap').classList.toggle('hidden', !r.trophies.length);
     $('overTrophies').innerHTML = r.trophies.map((t, i) => `<span style="animation-delay:${400 + i * 90}ms"><img src="${t.icon}" alt="">${t.name}</span>`).join('');
     $('overBoard').innerHTML = r.top.length
       ? r.top.map((e, i) => {
         const t = TIER[e.mode];
-        const tag = t ? `<span class="dtag hc ${t.id}">☠${t.name}</span>` : `<span class="dtag ${e.diff || 'normal'}">${(DIFF_LABEL[e.diff] || 'NORMAL').slice(0, 4)}</span>`;
+        const tag = e.mode === 'coop' ? '<span class="dtag coop">CO-OP</span>'
+          : t ? `<span class="dtag hc ${t.id}">☠${t.name}</span>` : `<span class="dtag ${e.diff || 'normal'}">${(DIFF_LABEL[e.diff] || 'NORMAL').slice(0, 4)}</span>`;
         return `<li class="${e === r.entry ? 'me' : ''}"><span>#${i + 1}</span><span>${fmt(e.score)}</span>${tag}<span>W${e.wave}</span></li>`;
       }).join('')
       : '<li class="empty">NO SCORES YET</li>';
@@ -596,6 +662,202 @@ const UI = (() => {
         + `<span class="tier-best">${best ? `BEST ${fmt(best.score)} · WAVE ${best.wave}` : 'NOT PLAYED YET'}</span>`
         + `${Trophies.has(t.id) ? '<span class="tier-won">★ BOSS BEATEN</span>' : ''}</span></button>`;
     }).join('');
+  }
+
+  // ================================================================ multiplayer (see net.js)
+  const NET_ERRORS = {
+    nolib: 'Online play could not load. Check your internet connection and reload the game.',
+    network: "Can't reach the multiplayer service. Check your internet connection and try again.",
+    timeout: 'The connection timed out. Check your internet connection and try again.',
+    taken: 'A room with this name and password is already open. Pick another room name.',
+    noroom: 'No room found with that name and password. Check both and try again.',
+    password: 'Wrong password.',
+    full: 'That room is full.',
+    started: 'That game has already started. Try again when it finishes.',
+    version: "Your game version doesn't match the host's. Everyone needs the latest version.",
+    browser: "This browser doesn't support online play.",
+    closed: 'The room closed the connection.',
+  };
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  function prefill(formId) {
+    const f = $(formId);
+    if (!f.elements.name.value) f.elements.name.value = Settings.get('mpName') || '';
+    if (!f.elements.room.value && Settings.get('mpRoom')) f.elements.room.value = Settings.get('mpRoom');
+    f.querySelector('[data-status]').textContent = '';
+    f.querySelector('[data-status]').className = 'form-status';
+  }
+  function formStatus(f, text, kind = '') {
+    const st = f.querySelector('[data-status]');
+    st.textContent = text;
+    st.className = `form-status ${kind}`;
+  }
+  async function submitNet(e, create) {
+    e.preventDefault();
+    const f = e.currentTarget;
+    const room = Net.cleanRoom(f.elements.room.value);
+    const name = Net.cleanName(f.elements.name.value);
+    const password = f.elements.password.value;
+    if (room.length < 3) { formStatus(f, 'The room name needs at least 3 letters or numbers.', 'bad'); f.elements.room.focus(); return; }
+    if (!name) { formStatus(f, 'Enter a username.', 'bad'); f.elements.name.focus(); return; }
+    if (password.length < 4) { formStatus(f, 'The password needs at least 4 characters.', 'bad'); f.elements.password.focus(); return; }
+    const btn = f.querySelector('[type=submit]');
+    btn.disabled = true;
+    formStatus(f, create ? 'CREATING ROOM…' : 'FINDING ROOM…', 'busy');
+    Sfx.unlock();
+    try {
+      if (create) await Net.create({ room, name, password, skin: Settings.get('skin') });
+      else await Net.join({ room, name, password, skin: Settings.get('skin') });
+      Settings.set('mpName', name);
+      Settings.set('mpRoom', room);
+      f.elements.password.value = '';
+      formStatus(f, '');
+      Sfx.play('power');
+      showLobby();
+    } catch (err) {
+      formStatus(f, NET_ERRORS[err && err.code] || NET_ERRORS.network, 'bad');
+      Sfx.play('hurt');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+  const lobbySeen = new Set();
+  function showLobby() {
+    stack = [];
+    lobbySeen.clear();
+    renderLobby();
+    show('lobby');
+  }
+  function renderLobby() {
+    const host = Net.role === 'host';
+    const s = Net.settings;
+    const roster = Net.roster;
+    $('lobbyRoom').textContent = Net.room.toUpperCase();
+    $('lobbyCount').textContent = `${roster.length}/${s.max}`;
+    $('lobbyShare').innerHTML = host
+      ? 'Share the <b>room name</b> and <b>password</b> with your friends so they can join, then press <b>START</b>.'
+      : 'You\'re in! The host picks the settings and starts the game.';
+    const skinImg = (id) => (typeof SKINS !== 'undefined' && (SKINS.find((k) => k.id === id) || SKINS[0]).img) || 'player.png';
+    let html = roster.map((r) => {
+      const meTag = r.pid === Net.myPid ? '<i class="tag you">YOU</i>' : '';
+      const hostTag = r.host ? '<i class="tag host">HOST</i>' : '';
+      const ping = r.host ? '' : `<small class="ping ${r.ping > 250 ? 'bad' : r.ping > 120 ? 'mid' : ''}">${r.ping ? r.ping + ' MS' : '…'}</small>`;
+      const kick = host && !r.host ? `<button class="kick" data-act="kick" data-pid="${r.pid}" aria-label="Remove ${esc(r.name)}">✕</button>` : '';
+      // only newly arrived players slide in (the list refreshes every couple of seconds with pings)
+      const fresh = !lobbySeen.has(`${r.pid}:${r.name}`);
+      return `<li class="lp${fresh ? ' new' : ''}" style="--pc:${Net.color(r.pid)}"><img src="${esc(skinImg(r.skin))}" alt=""><b>${esc(r.name)}</b>${hostTag}${meTag}${ping}${kick}</li>`;
+    }).join('');
+    lobbySeen.clear();
+    for (const r of roster) lobbySeen.add(`${r.pid}:${r.name}`);
+    for (let i = roster.length; i < s.max; i++) html += '<li class="lp empty"><span class="slot-ring"></span><b>WAITING FOR PLAYER…</b></li>';
+    $('lobbyList').innerHTML = html;
+    // settings: the host edits, everyone else sees them
+    const box = $('lobbySettings');
+    box.classList.toggle('readonly', !host);
+    $('lobbyHostOnly').classList.toggle('hidden', host);
+    box.querySelectorAll('.seg[data-lobby]').forEach((seg) => {
+      const v = String(s[seg.dataset.lobby]);
+      seg.querySelectorAll('button').forEach((b) => {
+        b.setAttribute('aria-pressed', String(b.dataset.val === v));
+        b.disabled = !host || (seg.dataset.lobby === 'max' && +b.dataset.val < roster.length);
+      });
+    });
+    const hearts = box.querySelector('[data-lobby=hearts]');
+    hearts.value = s.hearts;
+    hearts.disabled = !host;
+    hearts.style.setProperty('--v', ((s.hearts - 1) / 9) * 100 + '%');
+    $('lobbyHeartsOut').textContent = `${s.hearts} ♥`;
+    box.querySelectorAll('.lob-arcade').forEach((el) => el.classList.toggle('hidden', s.mode !== 'arcade'));
+    box.querySelectorAll('.lob-hardcore').forEach((el) => el.classList.toggle('hidden', s.mode !== 'hardcore'));
+    const tier = TIER[s.tier];
+    $('lobbyRules').innerHTML = s.mode === 'hardcore'
+      ? `<b>${tier.name}:</b> ${esc(tier.desc)} Always on HARD. <b>No respawns</b>: a downed player spectates until the run ends.`
+      : `Downed players <b>rejoin at the start of the next wave</b>. It's game over when the whole team is down. Mob and boss health grow with the team.`;
+    $('btnLobbyStart').classList.toggle('hidden', !host);
+    $('lobbyWait').classList.toggle('hidden', host);
+    $('lobbyWait').textContent = Net.phase === 'game' ? 'THE HOST IS STILL IN THE LAST RUN…' : 'WAITING FOR THE HOST TO START…';
+  }
+  function initLobby() {
+    $('formCreate').addEventListener('submit', (e) => submitNet(e, true));
+    $('formJoin').addEventListener('submit', (e) => submitNet(e, false));
+    document.querySelectorAll('[data-eye]').forEach((b) => b.addEventListener('click', () => {
+      const inp = b.parentElement.querySelector('input');
+      inp.type = inp.type === 'password' ? 'text' : 'password';
+      b.classList.toggle('on', inp.type === 'text');
+    }));
+    const box = $('lobbySettings');
+    box.querySelectorAll('.seg[data-lobby]').forEach((seg) => {
+      seg.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
+        if (Net.role !== 'host') return;
+        const key = seg.dataset.lobby;
+        Net.setSettings({ [key]: key === 'max' ? +b.dataset.val : b.dataset.val });
+        Sfx.play('click');
+      }));
+    });
+    const hearts = box.querySelector('[data-lobby=hearts]');
+    hearts.addEventListener('input', () => { if (Net.role === 'host') Net.setSettings({ hearts: +hearts.value }); });
+
+    Net.on('lobby', () => {
+      // the host finished a run and brought everyone back to the room
+      if (Net.role === 'guest' && Net.phase === 'lobby' && Game.net && (Game.state === 'over' || Game.state === 'dying')) {
+        leaveGame();
+        showLobby();
+        return;
+      }
+      if (current === 'lobby') renderLobby();
+    });
+    Net.on('joined', (name) => { toast(`${name.toUpperCase()} JOINED`); Sfx.play('pop'); });
+    Net.on('dropped', (pid, name, reason) => {
+      toast(`${name.toUpperCase()} ${reason === 'kicked' ? 'WAS REMOVED' : 'LEFT'}`);
+      if (Game.net) Game.netLeft(pid);
+    });
+    Net.on('start', (m) => {
+      if (!m || !m.world || !Array.isArray(m.roster)) return;
+      if (Game.net) leaveGame();
+      launchNet('guest', m);
+    });
+    Net.on('game', (pid, m) => Game.netRecv(pid, m));
+    Net.on('ended', (reason) => {
+      const inGame = Game.state !== 'menu';
+      if (inGame) leaveGame();
+      const txt = {
+        closed: ['ROOM CLOSED', 'The host closed the room.'],
+        kicked: ['REMOVED', 'The host removed you from the room.'],
+        lost: ['CONNECTION LOST', 'The connection to the host was lost.'],
+      }[reason] || ['DISCONNECTED', 'You left the room.'];
+      $('netMsgTitle').textContent = txt[0];
+      $('netMsgText').textContent = txt[1];
+      stack = [];
+      show('netMsg');
+    });
+    // skins changed in the lobby are shown to the whole room
+    Settings.onChange((key, v) => { if (key === 'skin' && Net.role && Net.phase === 'lobby') Net.setSkin(v); });
+  }
+  function launchNet(role, m) {
+    Sfx.unlock();
+    stack = [];
+    specOn = false;
+    show(null);
+    if (Settings.isTouch && !document.fullscreenElement) requestFs();
+    Game.startNet({
+      role, world: m.world, roster: m.roster, mePid: Net.myPid, settings: m.settings,
+      send: Net.send, broadcast: Net.broadcast, sendTo: Net.sendTo,
+    });
+  }
+  /** Called by the game when your ship goes down in co-op. */
+  function netDown(o) {
+    specOn = false;
+    $('downText').textContent = o.respawn
+      ? "You'll warp back in at the start of the next wave. Watch your team until then, or leave."
+      : 'No respawns in Hardcore. Your team fights on. Watch them until the end, or leave.';
+    $('specHint').textContent = o.respawn ? 'BACK NEXT WAVE' : 'NO RESPAWNS';
+    stack = [];
+    show('down');
+  }
+  function netBack() {
+    specOn = false;
+    hideSpec();
+    if (current === 'down') show(null);
+    toast("YOU'RE BACK IN THE FIGHT!");
   }
 
   // ================================================================ skins
@@ -736,7 +998,7 @@ const UI = (() => {
     }
     const a = document.activeElement;
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
-      if (a && a.type === 'range' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) return;
+      if (a && a.tagName === 'INPUT' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) return; // sliders + text cursor
       e.preventDefault();
       moveFocus(e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : 1);
       return;
@@ -832,6 +1094,7 @@ const UI = (() => {
     initSettings();
     initTabs();
     initSkins();
+    initLobby();
     syncMute();
     refreshMenu();
     Logo.mount($('menuLogo'), $('menuShine'));
@@ -857,6 +1120,6 @@ const UI = (() => {
   return {
     get current() { return current; },
     frame, bossBar, letterbox, banner, toast, flash, denied, syncMute,
-    onStart, onResume, showPause, showGameOver,
+    onStart, onResume, showPause, showGameOver, netDown, netBack,
   };
 })();

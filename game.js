@@ -43,7 +43,10 @@ const Game = (() => {
   const ctx = canvas.getContext('2d', { alpha: false });
   const FONT = '"Press Start 2P", ui-monospace, monospace';
   // k = size scale, vs = vertical speed scale (keeps screen-crossing time equal on every device)
-  const view = { w: 1, h: 1, dpr: 1, k: 1, vs: 1 };
+  // w/h = the world; sw/sh = the screen. In multiplayer every player shares the host's world size and
+  // each screen shows it scaled by z with ox/oy borders (in single player the world is the screen).
+  const view = { w: 1, h: 1, dpr: 1, k: 1, vs: 1, z: 1, ox: 0, oy: 0, sw: 1, sh: 1 };
+  let fixedWorld = null;
   let camX = 0;
   let camY = 0;
 
@@ -220,21 +223,29 @@ const Game = (() => {
   const skinKey = (s) => s.img.replace(/\.png$/i, '');
   const DEFAULT_SKIN = { id: 'phantom', img: 'player.png', ar: 197 / 331, ws: 1, trail: ['#3ee6ff', '#508cff'], glow: '#3ee6ff' };
   const hexCol = (h) => col(parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16));
-  let skin = DEFAULT_SKIN;
-  let skinSprite = 'player';
-  let skinTrail = [C.cyan, C.blue];
-  let skinGlow = C.cyan;
-  function applySkin() {
+  const skinData = (id) => {
     const list = typeof SKINS !== 'undefined' ? SKINS : [];
-    skin = list.find((s) => s.id === Settings.get('skin')) || list[0] || DEFAULT_SKIN;
-    skinSprite = skinKey(skin);
-    skinTrail = skin.trail.map(hexCol);
-    skinGlow = hexCol(skin.glow);
-    if (player) sizePlayer(player);
+    return list.find((s) => s.id === id) || list[0] || DEFAULT_SKIN;
+  };
+  let skin = DEFAULT_SKIN; // this device's chosen skin
+  function applySkin() {
+    skin = skinData(Settings.get('skin'));
+    if (me && !net) dressShip(me, skin.id);
+  }
+  /** Each ship carries its own skin: sprite, size, engine-trail and glow colours. */
+  function dressShip(p, id) {
+    const s = skinData(id);
+    p.skin = s.id;
+    p.sk = s;
+    p.skinKey = skinKey(s);
+    p.trail = s.trail.map(hexCol);
+    p.glowC = hexCol(s.glow);
+    sizePlayer(p);
   }
   function sizePlayer(p) {
-    p.w = 96 * view.k * skin.ws;
-    p.h = p.w * skin.ar;
+    const s = p.sk || skin;
+    p.w = 96 * view.k * s.ws;
+    p.h = p.w * s.ar;
     p.r = Math.max(4, 6.5 * view.k);
   }
 
@@ -244,8 +255,8 @@ const Game = (() => {
   const PAINTERS = { shield: paintShield, magnet: paintMagnet, crystal: paintCrystal };
 
   function sprite(name, w, h, tint) {
-    const pw = Math.max(2, Math.round(w * view.dpr));
-    const ph = Math.max(2, Math.round(h * view.dpr));
+    const pw = Math.max(2, Math.round(w * view.dpr * view.z));
+    const ph = Math.max(2, Math.round(h * view.dpr * view.z));
     const key = `${name}|${pw}|${ph}|${tint || ''}`;
     let c = cache.get(key);
     if (c) return c;
@@ -418,13 +429,15 @@ const Game = (() => {
 
   // ---- draw helpers (every helper sets its own transform, including camera shake)
   function at(x, y, sx = 1, sy = 1, rot = 0) {
-    const d = view.dpr;
+    const d = view.dpr * view.z;
+    const tx = view.dpr * view.ox + d * (x + camX);
+    const ty = view.dpr * view.oy + d * (y + camY);
     if (rot) {
       const cs = Math.cos(rot);
       const sn = Math.sin(rot);
-      ctx.setTransform(d * cs * sx, d * sn * sx, -d * sn * sy, d * cs * sy, d * (x + camX), d * (y + camY));
+      ctx.setTransform(d * cs * sx, d * sn * sx, -d * sn * sy, d * cs * sy, tx, ty);
     } else {
-      ctx.setTransform(d * sx, 0, 0, d * sy, d * (x + camX), d * (y + camY));
+      ctx.setTransform(d * sx, 0, 0, d * sy, tx, ty);
     }
   }
   function blit(c, x, y, w, h, rot, sx, sy) {
@@ -438,13 +451,28 @@ const Game = (() => {
     ctx.drawImage(glowTex(c), -r, -r, r * 2, r * 2);
   }
   function world() {
-    const d = view.dpr;
-    ctx.setTransform(d, 0, 0, d, d * camX, d * camY);
+    const d = view.dpr * view.z;
+    ctx.setTransform(d, 0, 0, d, view.dpr * view.ox + d * camX, view.dpr * view.oy + d * camY);
+  }
+  /** World space without camera shake. */
+  function base() {
+    const d = view.dpr * view.z;
+    ctx.setTransform(d, 0, 0, d, view.dpr * view.ox, view.dpr * view.oy);
   }
 
   // ================================================================ state
   let state = 'loading'; // loading | menu | playing | paused | dying | over
+  // Every ship in the run. `me` is the one this device controls. `player` is "the ship being
+  // handled right now": mob and boss AI see their current target through it, so the single-player
+  // code works unchanged in co-op (in single player it is always `me`).
+  let players = [];
+  let me = null;
   let player = null;
+  // multiplayer: null in single player, otherwise { role: 'host' | 'guest', ... } (see "multiplayer" below)
+  let net = null;
+  let netMenu = false;  // multiplayer menu open (the game keeps running for the team)
+  let specPid = 0;      // teammate being watched after you go down
+  const heartFx = [];   // heart pop / break animations above ships
   const enemies = [];
   const bullets = [];
   const ebullets = [];
@@ -503,7 +531,6 @@ const Game = (() => {
   let fps = 60;
   let fpsAcc = 0;
   let fpsFrames = 0;
-  let engineAcc = 0;
   let hiQ = true;
   let maxParts = 1400;
   let godMode = false;
@@ -520,21 +547,26 @@ const Game = (() => {
   function resize() {
     hiQ = Settings.get('quality') === 'high';
     maxParts = hiQ ? 1400 : 450;
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    const sw = window.innerWidth;
+    const sh = window.innerHeight;
+    const w = fixedWorld ? fixedWorld.w : sw;
+    const h = fixedWorld ? fixedWorld.h : sh;
+    view.sw = sw;
+    view.sh = sh;
     view.w = w;
     view.h = h;
+    view.z = fixedWorld ? Math.min(sw / w, sh / h) : 1;
+    view.ox = (sw - w * view.z) / 2;
+    view.oy = (sh - h * view.z) / 2;
     view.dpr = Math.min(window.devicePixelRatio || 1, hiQ ? 2 : 1.25);
     view.k = clamp(Math.min(w, h) / 720, 0.55, 1.25);
     view.vs = clamp(h / 900, 0.6, 1.4);
-    canvas.width = Math.round(w * view.dpr);
-    canvas.height = Math.round(h * view.dpr);
+    canvas.width = Math.round(sw * view.dpr);
+    canvas.height = Math.round(sh * view.dpr);
     cache.clear();
     initBackground();
-    if (player) {
-      sizePlayer(player);
-      clampPlayer();
-    }
+    for (const p of players) sizePlayer(p);
+    if (me) clampPlayer();
     if (state === 'paused') render();
   }
 
@@ -591,14 +623,17 @@ const Game = (() => {
     compact(meteors);
   }
   function drawBackground() {
-    const d = view.dpr;
+    const d = view.dpr * view.z;
+    const bx = view.dpr * view.ox;
+    const by = view.dpr * view.oy;
     const W = view.w;
     const H = view.h;
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
-    ctx.setTransform(d, 0, 0, d, 0, 0);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = ZONES[bg.zone].base;
-    ctx.fillRect(0, 0, W, H);
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    base();
 
     // star texture: alternating mirrored tiles make the vertical loop seamless
     const tex = IMG.space;
@@ -613,11 +648,11 @@ const Game = (() => {
       ctx.globalAlpha = 0.42;
       for (let i = 0, ty = y - 2 * ih; ty < H; i++, ty += ih) {
         if (ty + ih <= 0) continue;
-        if (i % 2 === 0) ctx.setTransform(d, 0, 0, d, 0, d * ty);
-        else ctx.setTransform(d, 0, 0, -d, 0, d * (ty + ih));
+        if (i % 2 === 0) ctx.setTransform(d, 0, 0, d, bx, by + d * ty);
+        else ctx.setTransform(d, 0, 0, -d, bx, by + d * (ty + ih));
         ctx.drawImage(tex, 0, 0, tw, th, x0, 0, iw, ih);
       }
-      ctx.setTransform(d, 0, 0, d, 0, 0);
+      base();
     }
 
     // nebula clouds (cross-fade between zones)
@@ -705,6 +740,7 @@ const Game = (() => {
   const SHARD = 5;
 
   function P(x, y, vx, vy, life, size, c, kind, drag = 3, grav = 0) {
+    if (kind === RING && quiet === 0) fwd('r', r1(x), r1(y), r2(life), r1(size), c.s);
     if (parts.length >= maxParts) return null;
     const p = pool.pop() || {};
     p.x = x; p.y = y; p.vx = vx; p.vy = vy;
@@ -722,6 +758,7 @@ const Game = (() => {
     }
   }
   function burst(x, y, c, n, speed = 260) {
+    fwd('b', r1(x), r1(y), c.s, n, speed);
     for (let i = 0; i < n; i++) {
       const a = rand(TAU);
       const sp = rand(0.3, 1) * speed * view.k;
@@ -729,6 +766,12 @@ const Game = (() => {
     }
   }
   function explode(x, y, pal, s = 1, gc = C.orange) {
+    fwd('x', r1(x), r1(y), pal.map((c) => c.s), r2(s), gc.s);
+    quiet += 1;
+    explodeFx(x, y, pal, s, gc);
+    quiet -= 1;
+  }
+  function explodeFx(x, y, pal, s, gc) {
     const k = view.k;
     const q = hiQ ? 1 : 0.45;
     P(x, y, 0, 0, 0.22, 60 * k * s, C.white, GLOW);
@@ -754,6 +797,7 @@ const Game = (() => {
   }
   /** Break a mob's sprite into tumbling pieces. */
   function shatter(e) {
+    if (e.nid) fwd('h', e.nid);
     const c = sprite(e.T.img, e.w, e.h, e.T.tint);
     const n = hiQ ? 3 : 2;
     const cw = e.w / n;
@@ -855,6 +899,7 @@ const Game = (() => {
 
   // ---- lightning bolts (Trident storm)
   function bolt(x0, y0, x1, y1) {
+    fwd('l', r1(x0), r1(y0), r1(x1), r1(y1));
     const pts = [];
     const segs = 9;
     const k = view.k;
@@ -897,7 +942,6 @@ const Game = (() => {
     hazards.push({ kind, x, y, r, life, max: life, warn, warnMax: warn, t: 0, dead: false });
   }
   function updateHazards(dt) {
-    const p = player;
     const k = view.k;
     for (const h of hazards) {
       h.t += dt;
@@ -907,10 +951,11 @@ const Game = (() => {
       if (hiQ && h.kind !== 'fang' && Math.random() < dt * 10) {
         P(h.x + rand(-0.7, 0.7) * h.r, h.y + rand(-0.4, 0.4) * h.r, 0, -rand(20, 60) * k, rand(0.4, 0.8), rand(6, 12) * k, h.kind === 'acid' ? pick([C.purple, C.pink]) : pick([C.orange, C.gold]), GLOW, 1);
       }
-      if (p && p.alive && p.intro === 0) {
+      for (const p of players) {
+        if (!p.alive || p.intro > 0) continue;
         const dx = (p.x - h.x) / h.r;
         const dy = (p.y - h.y) / (h.r * (h.kind === 'fang' ? 1 : 0.7));
-        if (dx * dx + dy * dy < 1) hurtPlayer();
+        if (dx * dx + dy * dy < 1) hurtPlayer(1, p);
       }
     }
     compact(hazards);
@@ -965,6 +1010,7 @@ const Game = (() => {
 
   // ---- floating text
   function popup(x, y, text, color = '#fff', size = 10, life = 0.9) {
+    fwd('p', r1(x), r1(y), text, color, size, life);
     if (popups.length > 40) popups.shift();
     popups.push({ x, y, text, color, size: Math.round(size * clamp(view.k * 1.1, 0.8, 1.3)), life, max: life, vy: -55 * view.k, dead: false });
   }
@@ -978,7 +1024,9 @@ const Game = (() => {
     compact(popups);
   }
   function drawPopups() {
-    const d = view.dpr;
+    const d = view.dpr * view.z;
+    const bx = view.dpr * view.ox;
+    const by = view.dpr * view.oy;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.lineJoin = 'round';
@@ -987,7 +1035,7 @@ const Game = (() => {
       const t = p.life / p.max;
       const sc = age < 0.14 ? Math.max(0.01, easeOutBack(age / 0.14)) : 1;
       ctx.globalAlpha = t < 0.3 ? t / 0.3 : 1;
-      ctx.setTransform(d * sc, 0, 0, d * sc, d * (p.x + camX), d * (p.y + camY));
+      ctx.setTransform(d * sc, 0, 0, d * sc, bx + d * (p.x + camX), by + d * (p.y + camY));
       ctx.font = `${p.size}px ${FONT}`;
       ctx.lineWidth = Math.max(3, p.size * 0.4);
       ctx.strokeStyle = 'rgba(0,0,0,.75)';
@@ -999,8 +1047,42 @@ const Game = (() => {
   }
 
   // ---- screen feel + scoring
-  const shake = (a) => { trauma = Math.min(1, trauma + a); };
-  const slowmo = (dur, scale) => { slowT = Math.max(slowT, dur); slowScale = scale; };
+  const shake = (a) => { trauma = Math.min(1, trauma + a); fwd('k', r2(a)); };
+  const slowmo = (dur, scale) => { slowT = Math.max(slowT, dur); slowScale = scale; fwd('w', r2(dur), r2(scale)); };
+
+  // ---- multiplayer relay: on the host, effects, sounds and banners are also queued for the guests
+  let quiet = 0; // > 0 while an already-relayed effect runs, so its parts aren't sent twice
+  const r1 = (v) => Math.round(v * 10) / 10;
+  const r2 = (v) => Math.round(v * 100) / 100;
+  function fwd(code, ...args) {
+    if (net && net.role === 'host' && quiet === 0 && (state === 'playing' || state === 'dying')) net.out.push([code, ...args]);
+  }
+  // sounds only the player who caused them should hear
+  const LOCAL_SFX = new Set(['shoot', 'missile', 'dash', 'hurt', 'heartbeat', 'tick', 'graze', 'ready', 'click', 'hover']);
+  function sfx(name, arg) {
+    Sfx.play(name, arg);
+    if (!LOCAL_SFX.has(name)) fwd('s', name, arg === undefined ? null : arg);
+  }
+  function music(mode) { Sfx.music(mode); fwd('m', mode); }
+  const U = {
+    banner: (a, b, c, d) => { UI.banner(a, b, c, d); fwd('B', a, b, c, d); },
+    toast: (m) => { UI.toast(m); fwd('T', m); },
+    flash: (kind) => { UI.flash(kind); fwd('F', kind); },
+    bossBar: (on, name, phases) => { UI.bossBar(on, name, phases); fwd('BB', on, name || '', phases || null); },
+    letterbox: (on) => { UI.letterbox(on); fwd('L', on); },
+  };
+  // colours travel as their css string and come back as one shared colour object each
+  const colCache = new Map();
+  function colS(s) {
+    if (!s) return C.white;
+    let c = colCache.get(s);
+    if (!c) {
+      const m = /(\d+)\D+(\d+)\D+(\d+)/.exec(s);
+      c = m ? col(+m[1], +m[2], +m[3]) : C.white;
+      colCache.set(s, c);
+    }
+    return c;
+  }
   /** Every point goes through here so difficulty, hearts bonus and 2x-score apply everywhere. */
   function addScore(v) {
     const s = Math.round(v * diff.score * heartMul * (buffs.double > 0 ? 2 : 1));
@@ -1009,13 +1091,22 @@ const Game = (() => {
   }
 
   // ================================================================ player
-  function makePlayer(hearts) {
-    const w = 96 * view.k * skin.ws;
-    return {
-      x: view.w / 2, y: view.h + w, w, h: w * skin.ar, r: Math.max(4, 6.5 * view.k),
+  /** info (multiplayer): { pid, name, skin, slot, count } — ships line up side by side when they warp in. */
+  function makePlayer(hearts, info = {}) {
+    const n = info.count || 1;
+    const p = {
+      pid: info.pid || 1, name: info.name || '', homeX: view.w * ((info.slot || 0) + 1) / (n + 1),
+      x: 0, y: 0, w: 1, h: 1, r: 1,
       vx: 0, vy: 0, tilt: 0, hp: hearts, maxHp: hearts, invuln: 0, weapon: 1, power: 1, fireT: 0.3,
       dashT: 0, dashCd: 0, dvx: 0, dvy: 0, knockT: 0, kvx: 0, kvy: 0, ghostT: 0, recoil: 0, alive: true, volley: 0, intro: 1, totem: false,
+      engine: 0, fireOn: false, nx: 0, ny: 0, in: null, left: false,
     };
+    dressShip(p, info.skin || skin.id);
+    p.x = p.homeX;
+    p.y = view.h + p.h;
+    p.nx = p.x;
+    p.ny = p.y;
+    return p;
   }
   function bounds() {
     const p = player;
@@ -1024,16 +1115,66 @@ const Game = (() => {
     return { minX: mx, maxX: view.w - mx, minY: view.h * 0.2, maxY: view.h - my - 4 };
   }
   function clampPlayer() {
-    if (player.intro > 0) return;
+    if (!me || me.intro > 0) return;
     const b = bounds();
-    player.x = clamp(player.x, b.minX, b.maxX);
-    player.y = clamp(player.y, b.minY, b.maxY);
+    me.x = clamp(me.x, b.minX, b.maxX);
+    me.y = clamp(me.y, b.minY, b.maxY);
   }
   const maxSpeed = () => 0.62 * Math.sqrt(view.w * view.h);
 
-  function updatePlayer(dt) {
-    const p = player;
+  /**
+   * One ship per call. Your own ship follows your controls; in multiplayer a teammate's ship
+   * follows the position their device reports (host) or the host's latest update (guests).
+   */
+  function updateShip(p, dt) {
     if (!p.alive) return;
+    if (p === me) { steerLocal(p, dt); return; }
+    const k = view.k;
+    p.invuln = Math.max(0, p.invuln - dt);
+    p.recoil = Math.max(0, p.recoil - dt * 8);
+    if (p.dashT > 0) {
+      p.dashT -= dt;
+      p.ghostT -= dt;
+      if (p.ghostT <= 0) { p.ghostT = 0.03; addGhost(p); }
+    }
+    let tx = p.nx;
+    let ty = p.ny;
+    if (net && net.role === 'host' && p.in) {
+      tx = p.in.x;
+      ty = p.in.y;
+      p.tilt = damp(p.tilt, p.in.tilt, 12, dt);
+      p.intro = p.in.intro;
+    }
+    const ox = p.x;
+    const oy = p.y;
+    p.x = damp(p.x, tx, 22, dt);
+    p.y = damp(p.y, ty, 22, dt);
+    if (net && net.role === 'host' && p.in) { p.vx = p.in.vx; p.vy = p.in.vy; } else { p.vx = (p.x - ox) / Math.max(dt, 1e-3); p.vy = (p.y - oy) / Math.max(dt, 1e-3); }
+    shipFx(p, dt, k);
+    // teammates' shots: real on the host, just for show on guests
+    p.fireT -= dt;
+    if (p.fireT < -0.1) p.fireT = 0;
+    if (p.fireOn && p.intro < 0.05 && p.fireT <= 0) {
+      fire(p);
+      p.fireT += WEAPONS[p.weapon].rate * (buffs.overdrive > 0 ? 0.55 : 1) * (debuffs.fatigue > 0 ? 1.6 : 1);
+    }
+  }
+  function addGhost(p) {
+    ghosts.push({ x: p.x, y: p.y, rot: p.tilt * 0.28, a: 0.55, key: p.skinKey, w: p.w, h: p.h, dead: false });
+  }
+  /** Engine trail and aura particles for any ship. */
+  function shipFx(p, dt, k) {
+    const od = buffs.overdrive > 0;
+    p.engine += dt * (hiQ ? 70 : 28) * (od ? 1.6 : 1) * (p === me ? 1 : 0.6);
+    while (p.engine >= 1) {
+      p.engine -= 1;
+      P(p.x + rand(-4, 4) * k, p.y + p.h * 0.38, rand(-25, 25) * k - p.vx * 0.1, rand(170, 280) * view.vs, rand(0.16, 0.3), rand(5, 10) * k, od ? pick([C.purple, C.pink]) : pick(p.trail), GLOW, 2);
+    }
+    if (p.totem && hiQ && Math.random() < dt * 5) P(p.x + rand(-0.4, 0.4) * p.w, p.y + rand(-0.3, 0.3) * p.h, 0, -40 * k, 0.6, 7 * k, C.gold, GLOW, 1);
+    if (debuffs.fatigue > 0 && hiQ && Math.random() < dt * 8) P(p.x + rand(-0.4, 0.4) * p.w, p.y, 0, 30 * k, 0.6, 8 * k, C.purple, GLOW, 1);
+  }
+
+  function steerLocal(p, dt) {
     const k = view.k;
     const tired = debuffs.fatigue > 0;
     p.invuln = Math.max(0, p.invuln - dt);
@@ -1044,15 +1185,19 @@ const Game = (() => {
       // warp-in: fly up from below the screen
       p.intro = Math.max(0, p.intro - dt * 0.9);
       p.y = lerp(view.h + p.h, view.h * 0.78, easeOutCubic(1 - p.intro));
-      p.x = damp(p.x, view.w / 2, 6, dt);
+      p.x = damp(p.x, p.homeX || view.w / 2, 6, dt);
       if (p.intro === 0) Input.rebase();
     } else if (p.dashT > 0) {
       p.dashT -= dt;
       p.x += p.dvx * dt;
       p.y += p.dvy * dt;
       p.ghostT -= dt;
-      if (p.ghostT <= 0) { p.ghostT = 0.018; ghosts.push({ x: p.x, y: p.y, rot: p.tilt * 0.28, a: 0.55, dead: false }); }
+      if (p.ghostT <= 0) { p.ghostT = 0.018; addGhost(p); }
       if (p.dashT <= 0) { p.vx = p.dvx * 0.25; p.vy = p.dvy * 0.25; Input.rebase(); }
+    } else if (netMenu) {
+      // multiplayer menu is open: hold position
+      p.vx = damp(p.vx, 0, 10, dt);
+      p.vy = damp(p.vy, 0, 10, dt);
     } else if (p.knockT > 0) {
       // shoved by a boss roar
       p.knockT -= dt;
@@ -1096,26 +1241,20 @@ const Game = (() => {
 
     // soul-fire engine trail
     const od = buffs.overdrive > 0;
-    engineAcc += dt * (hiQ ? 70 : 28) * (od ? 1.6 : 1);
-    while (engineAcc >= 1) {
-      engineAcc -= 1;
-      P(p.x + rand(-4, 4) * k, p.y + p.h * 0.38, rand(-25, 25) * k - p.vx * 0.1, rand(170, 280) * view.vs, rand(0.16, 0.3), rand(5, 10) * k, od ? pick([C.purple, C.pink]) : pick(skinTrail), GLOW, 2);
-    }
-    if (p.totem && hiQ && Math.random() < dt * 5) P(p.x + rand(-0.4, 0.4) * p.w, p.y + rand(-0.3, 0.3) * p.h, 0, -40 * k, 0.6, 7 * k, C.gold, GLOW, 1);
-    if (tired && hiQ && Math.random() < dt * 8) P(p.x + rand(-0.4, 0.4) * p.w, p.y, 0, 30 * k, 0.6, 8 * k, C.purple, GLOW, 1);
+    shipFx(p, dt, k);
 
     // shooting
     p.fireT -= dt;
     if (p.fireT < -0.1) p.fireT = 0;
-    const wantFire = Settings.get('autoFire') || Input.firing;
+    const wantFire = !netMenu && (Settings.get('autoFire') || Input.firing);
+    p.fireOn = wantFire;
     if (wantFire && p.intro === 0 && p.fireT <= 0) {
-      fire();
+      fire(p);
       p.fireT += WEAPONS[p.weapon].rate * (od ? 0.55 : 1) * (tired ? 1.6 : 1);
     }
   }
 
-  function fire() {
-    const p = player;
+  function fire(p = player) {
     const lv = p.weapon;
     const wp = WEAPONS[lv];
     const k = view.k;
@@ -1130,18 +1269,18 @@ const Game = (() => {
       bullets.push({ x: x + dx * k, y, vx: Math.sin(ang) * sp, vy: -Math.cos(ang) * sp, r: size * 0.42, s: size, c, col: wp.c, dmg, pierce: od ? 1 : 0, rot: rand(TAU), spin: rand(8, 14), life: 1.6, homing: false, src: 'bullet', last: null, dead: false });
     }
     if (lv >= 5 && p.volley++ % 3 === 0) {
-      missile(x - p.w * 0.34, y + p.h * 0.35, -1);
-      missile(x + p.w * 0.34, y + p.h * 0.35, 1);
-      Sfx.play('missile');
+      missile(x - p.w * 0.34, y + p.h * 0.35, -1, p);
+      missile(x + p.w * 0.34, y + p.h * 0.35, 1, p);
+      if (p === me) Sfx.play('missile');
     }
     P(x, y, 0, 0, 0.07, 22 * k, wp.c, GLOW);
     p.recoil = 1;
-    Sfx.play('shoot', lv);
+    if (p === me) Sfx.play('shoot', lv);
   }
-  function missile(x, y, side) {
+  function missile(x, y, side, p = player) {
     const k = view.k;
     const s = 26 * k;
-    bullets.push({ x, y, vx: side * 280 * k, vy: -160 * view.vs, r: 10 * k, s, c: sprite('missile', s, s), col: C.green, dmg: 2 * player.power, pierce: 0, rot: 0, spin: 0, life: 2.4, homing: true, turn: 7, speed: 900 * view.vs, trail: 0, src: 'missile', last: null, dead: false });
+    bullets.push({ x, y, vx: side * 280 * k, vy: -160 * view.vs, r: 10 * k, s, c: sprite('missile', s, s), col: C.green, dmg: 2 * p.power, pierce: 0, rot: 0, spin: 0, life: 2.4, homing: true, turn: 7, speed: 900 * view.vs, trail: 0, src: 'missile', last: null, dead: false });
   }
 
   // debug only: a simple bot that dodges like an average player, used to measure boss difficulty
@@ -1198,8 +1337,8 @@ const Game = (() => {
     p.y += clamp(botY - p.y, -step, step);
   }
   function tryDash(fx, fy) {
-    const p = player;
-    if (!p || !p.alive || p.intro > 0 || p.dashCd > 0 || p.dashT > 0) return;
+    const p = me;
+    if (!p || !p.alive || p.intro > 0 || p.dashCd > 0 || p.dashT > 0 || netMenu) return;
     let dx = fx;
     let dy = fy;
     if (dx == null) {
@@ -1228,6 +1367,8 @@ const Game = (() => {
     P(p.x, p.y, 0, 0, 0.3, 50 * view.k, C.cyan, RING);
     Sfx.play('dash');
     Input.vibrate(12);
+    // the host needs to know: you can't be hit mid-dash
+    if (net && net.role === 'guest') net.send({ t: 'dash' });
   }
   function knockPlayer(x, y, force) {
     const p = player;
@@ -1235,47 +1376,57 @@ const Game = (() => {
     const dx = p.x - x;
     const dy = p.y - y;
     const d = Math.hypot(dx, dy) || 1;
+    const kvx = (dx / d) * force;
+    const kvy = (dy / d) * force;
+    // a guest's ship is steered on the guest's own device, so the shove is sent there
+    if (p !== me) { if (net && net.role === 'host') net.sendTo(p.pid, { t: 'E', e: [['kn', r1(kvx), r1(kvy)]] }); return; }
     p.knockT = 0.3;
-    p.kvx = (dx / d) * force;
-    p.kvy = (dy / d) * force;
+    p.kvx = kvx;
+    p.kvy = kvy;
     Input.vibrate(40);
   }
 
-  function useNova() {
-    const p = player;
+  /** The Nova meter is shared by the whole team in co-op: anyone can fire it once it's full. */
+  function useNova(p = me) {
     if (state !== 'playing' || !p || !p.alive || p.intro > 0) return;
-    if (nova < 100) { UI.denied('nova'); return; }
+    if (net && net.role === 'guest') {
+      if (nova < 100) UI.denied('nova');
+      else net.send({ t: 'nova' });
+      return;
+    }
+    if (nova < 100) { if (p === me) UI.denied('nova'); return; }
     nova = 0;
     novaReadyShown = false;
     stats.novas += 1;
-    startNova(p.x, p.y);
+    startNova(p.x, p.y, p.power);
     p.invuln = Math.max(p.invuln, 1.2);
     P(p.x, p.y, 0, 0, 0.5, 160 * view.k, C.pink, GLOW);
-    Sfx.play('nova');
+    sfx('nova');
     shake(0.9);
     slowmo(0.45, 0.35);
-    UI.flash('white');
-    Input.vibrate([30, 40, 90]);
+    U.flash('white');
+    if (p === me) Input.vibrate([30, 40, 90]);
   }
-  function startNova(x, y) {
-    novaFx = { id: ++novaId, x, y, r: 0, max: Math.hypot(view.w, view.h) * 1.05 };
+  function startNova(x, y, power = me ? me.power : 1) {
+    novaFx = { id: ++novaId, x, y, r: 0, max: Math.hypot(view.w, view.h) * 1.05, power };
   }
   function updateNova(dt) {
     if (!novaFx) return;
     const n = novaFx;
     n.r += (1500 * view.k + n.r * 1.5) * dt;
-    const r2 = n.r * n.r;
+    if (net && net.role === 'guest') { if (n.r > n.max) novaFx = null; return; } // the host does the damage
+    const rr = n.r * n.r;
     // kills made by the Nova (and any explosions it sets off) never recharge it
     novaLock += 1;
     for (const e of enemies) {
-      if (e.dead || e.novaId === n.id || dist2(e.x, e.y, n.x, n.y) > r2) continue;
+      if (e.dead || e.novaId === n.id || dist2(e.x, e.y, n.x, n.y) > rr) continue;
       e.novaId = n.id;
       // against bosses the Nova is capped at 4% of their health
-      hurtEnemy(e, e.T.boss ? Math.min(45 * player.power, e.maxHp * 0.04) : 30 * player.power, e.x, e.y, 'nova');
+      hurtEnemy(e, e.T.boss ? Math.min(45 * n.power, e.maxHp * 0.04) : 30 * n.power, e.x, e.y, 'nova');
     }
     novaLock -= 1;
     for (const b of ebullets) {
-      if (b.dead || dist2(b.x, b.y, n.x, n.y) > r2) continue;
+      if (b.dead || dist2(b.x, b.y, n.x, n.y) > rr) continue;
       b.dead = true;
       score += 5;
       P(b.x, b.y, 0, -40 * view.k, 0.5, 10 * view.k, C.gold, GLOW);
@@ -1306,38 +1457,54 @@ const Game = (() => {
 
   /** Boss heavy hits (beams, slams, body contact, lasers) cost 2 hearts on Hard. */
   const heavyDmg = () => (diffKey === 'hard' && bossLevel >= 2 ? 2 : 1);
-  function hurtPlayer(dmg = 1) {
-    const p = player;
-    if (!p.alive || p.intro > 0) return 0;
-    if (buffs.shield > 0) { Sfx.play('shield'); return 1; }
+  /** Returns 0 = no hit, 1 = blocked by the shield, 2 = took damage. `who` defaults to the current target. */
+  function hurtPlayer(dmg = 1, who = player) {
+    const p = who;
+    if (!p || !p.alive || p.intro > 0) return 0;
+    if (buffs.shield > 0) { sfx('shield'); return 1; }
     if (p.invuln > 0 || p.dashT > 0) return 0;
-    if (godMode) { botHits += dmg; p.invuln = boss ? 2.1 : 1.7; return 0; } // counts would-be hits for testing
+    if (godMode && p === me) { botHits += dmg; p.invuln = boss ? 2.1 : 1.7; return 0; } // counts would-be hits for testing
     p.hp -= dmg;
+    heartPop(p, -dmg);
     if (dmg > 1) popup(p.x, p.y - p.h * 1.2, `-${dmg} HEARTS`, '#ff4d5e', 12, 1.2);
     p.invuln = boss ? 2.1 : 1.7; // a little extra breathing room during boss fights
     wave.hurt = true;
     stats.damage += 1;
     if (combo >= 3) popup(p.x, p.y - p.h, 'COMBO LOST', '#ff4d5e', 10, 1);
     resetCombo();
-    shake(0.65);
-    hitstop = 0.07;
     explode(p.x, p.y, PAL.player, 0.8, C.cyan);
     // mercy: wipe bullets right next to the ship
     const R = 140 * view.k;
     for (const b of ebullets) {
       if (!b.dead && dist2(b.x, b.y, p.x, p.y) < R * R) { b.dead = true; spark(b.x, b.y, b.c, 3); }
     }
-    Sfx.play('hurt');
-    Input.vibrate([60, 30, 60]);
-    UI.flash('hurt');
+    // the shake, flash, rumble and sound belong to whoever got hit
+    if (p === me) hitFeedback();
+    else if (net && net.role === 'host') net.sendTo(p.pid, { t: 'E', e: [['hurt']] });
     if (p.hp <= 0) {
-      if (p.totem) useTotem();
-      else playerDie();
+      if (p.totem) useTotem(p);
+      else playerDie(p);
     }
     return 2;
   }
-  function useTotem() {
-    const p = player;
+  function hitFeedback() {
+    trauma = Math.min(1, trauma + 0.65);
+    hitstop = 0.07;
+    Sfx.play('hurt');
+    Input.vibrate([60, 30, 60]);
+    UI.flash('hurt');
+  }
+  /** Heart animation above a ship: breaks when hearts are lost, pops when one is gained. */
+  function heartPop(p, delta) {
+    addHeartFx(p.pid, delta);
+    fwd('hf', p.pid, delta);
+  }
+  function addHeartFx(pid, delta) {
+    if (heartFx.length > 12) heartFx.shift();
+    const p = players.find((q) => q.pid === pid);
+    heartFx.push({ pid, d: delta, t: 0, x: p ? p.x : view.w / 2, y: p ? p.y : view.h / 2, seed: Math.random() });
+  }
+  function useTotem(p = player) {
     const k = view.k;
     p.totem = false;
     p.hp = Math.min(rules.totemHearts, p.maxHp);
@@ -1354,23 +1521,25 @@ const Game = (() => {
     P(p.x, p.y, 0, 0, 0.6, 200 * k, C.gold, GLOW);
     popup(p.x, p.y - p.h, 'TOTEM OF UNDYING!', '#ffe066', 14, 2);
     for (const b of ebullets) if (!b.dead) { b.dead = true; spark(b.x, b.y, C.gold, 2); }
-    startNova(p.x, p.y);
-    Sfx.play('totem');
-    UI.flash('gold');
+    startNova(p.x, p.y, p.power);
+    heartPop(p, p.hp);
+    sfx('totem');
+    if (p === me) { UI.flash('gold'); Input.vibrate([60, 40, 120]); }
+    else if (net && net.role === 'host') net.sendTo(p.pid, { t: 'E', e: [['F', 'gold']] });
     slowmo(1, 0.3);
     shake(0.6);
-    Input.vibrate([60, 40, 120]);
   }
-  function playerDie() {
-    const p = player;
+  function playerDie(p = player) {
     p.alive = false;
+    p.fireOn = false;
+    if (net) { teammateDown(p); return; }
     state = 'dying';
     dieT = 0;
     explode(p.x, p.y, PAL.player, 2.6, C.cyan);
     P(p.x, p.y, 0, 0, 0.9, 260 * view.k, C.cyan, RING);
     P(p.x, p.y, 0, 0, 0.6, 200 * view.k, C.white, GLOW);
-    Sfx.play('bigExplode');
-    Sfx.music(null);
+    sfx('bigExplode');
+    music(null);
     shake(1);
     slowmo(1.4, 0.25);
     Input.vibrate([120, 60, 240]);
@@ -1394,16 +1563,25 @@ const Game = (() => {
       bolt(t.x + rand(-70, 70) * view.k, -20, t.x, t.y);
       P(t.x, t.y, 0, 0, 0.25, 70 * view.k, C.cyan, GLOW);
       spark(t.x, t.y, C.white, 4);
-      hurtEnemy(t, (t.T.boss ? 8 : 5) * player.power, t.x, t.y, 'storm');
+      hurtEnemy(t, (t.T.boss ? 8 : 5) * teamPower(), t.x, t.y, 'storm');
     }
-    Sfx.play('thunder');
+    sfx('thunder');
     shake(0.15);
   }
-  function resetDrones() {
-    for (const d of drones) { d.x = player.x; d.y = player.y; }
+  const alivePlayers = () => players.filter((p) => p.alive);
+  // a teammate's ship is a few frames behind on the host, so its hitbox is a little forgiving
+  const hitR = (p) => (p === me ? p.r : p.r * 0.8);
+  const teamPower = () => players.reduce((m, p) => (p.alive ? Math.max(m, p.power) : m), 1);
+  /** Allay drones follow whoever picked them up (or any teammate still flying). */
+  let droneOwner = null;
+  const droneHost = () => (droneOwner && droneOwner.alive && players.includes(droneOwner) ? droneOwner : alivePlayers()[0] || null);
+  function resetDrones(p = player) {
+    droneOwner = p;
+    for (const d of drones) { d.x = p.x; d.y = p.y; }
   }
   function updateDrones(dt) {
-    if (buffs.drones <= 0 || !player.alive) return;
+    const o = droneHost();
+    if (buffs.drones <= 0 || !o) return;
     const k = view.k;
     droneA += dt * 2.2;
     droneFire -= dt;
@@ -1412,21 +1590,21 @@ const Game = (() => {
     for (let i = 0; i < 2; i++) {
       const d = drones[i];
       const a = droneA + i * Math.PI;
-      d.x = damp(d.x, player.x + Math.cos(a) * 60 * k, 12, dt);
-      d.y = damp(d.y, player.y + Math.sin(a) * 26 * k - 12 * k, 12, dt);
+      d.x = damp(d.x, o.x + Math.cos(a) * 60 * k, 12, dt);
+      d.y = damp(d.y, o.y + Math.sin(a) * 26 * k - 12 * k, 12, dt);
       if (shoot) {
         const t = nearestEnemy(d.x, d.y);
         if (t) {
           const ang = Math.atan2(t.y - d.y, t.x - d.x);
           const sp = 760 * view.vs;
-          bullets.push({ x: d.x, y: d.y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, r: 7 * k, s: 14 * k, orb: C.cyan, col: C.cyan, dmg: player.power, pierce: 0, rot: 0, spin: 0, life: 1.6, homing: true, turn: 9, speed: 860 * view.vs, trail: 0, src: 'missile', last: null, dead: false });
+          bullets.push({ x: d.x, y: d.y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, r: 7 * k, s: 14 * k, orb: C.cyan, col: C.cyan, dmg: o.power, pierce: 0, rot: 0, spin: 0, life: 1.6, homing: true, turn: 9, speed: 860 * view.vs, trail: 0, src: 'missile', last: null, dead: false });
         }
       }
       if (hiQ && Math.random() < dt * 12) P(d.x, d.y, rand(-20, 20) * k, rand(20, 60) * k, 0.4, 6 * k, C.cyan, GLOW, 2);
     }
   }
   function drawDrones() {
-    if (buffs.drones <= 0 || !player.alive) return;
+    if (buffs.drones <= 0 || !droneHost()) return;
     const k = view.k;
     const s = 28 * k;
     const blink = buffs.drones < 2 && Math.sin(time * 25) > 0;
@@ -1446,18 +1624,27 @@ const Game = (() => {
     for (const g of ghosts) { g.a -= dt * 3; if (g.a <= 0) g.dead = true; }
     compact(ghosts);
   }
-  function drawPlayer() {
-    const p = player;
+  function drawPlayers() {
+    for (const g of ghosts) {
+      ctx.globalAlpha = g.a;
+      blit(sprite(g.key, g.w, g.h, 'cyan'), g.x, g.y, g.w, g.h, g.rot);
+    }
+    ctx.globalAlpha = 1;
+    for (const p of players) if (p !== me) drawShip(p);
+    if (me) drawShip(me); // your own ship on top
+    drawDrones();
+    if (players.length > 1) drawTags();
+    drawHeartFx();
+  }
+  function drawShip(p) {
     if (!p || !p.alive) return;
     const k = view.k;
-    const pc = sprite(skinSprite, p.w, p.h);
-    if (ghosts.length) {
-      const gc = sprite(skinSprite, p.w, p.h, 'cyan');
-      for (const g of ghosts) { ctx.globalAlpha = g.a; blit(gc, g.x, g.y, p.w, p.h, g.rot); }
-    }
+    const pc = sprite(p.skinKey, p.w, p.h);
     const od = buffs.overdrive > 0;
     ctx.globalCompositeOperation = 'lighter';
-    glow(od ? C.purple : skinGlow, p.x, p.y + p.h * 0.1, Math.max(p.w, p.h) * 0.9, 0.33 + 0.08 * Math.sin(time * 6));
+    // the teammate you are watching gets a soft ring
+    if (specPid && p.pid === specPid && me && !me.alive) glow(colS(netColor(p.pid)), p.x, p.y, Math.max(p.w, p.h) * 1.4, 0.3 + 0.12 * Math.sin(time * 5));
+    glow(od ? C.purple : p.glowC, p.x, p.y + p.h * 0.1, Math.max(p.w, p.h) * 0.9, 0.33 + 0.08 * Math.sin(time * 6));
     if (p.weapon >= 5) glow(C.gold, p.x, p.y, p.w * 1.1, 0.16 + 0.08 * Math.sin(time * 5));
     ctx.globalCompositeOperation = 'source-over';
     const blink = p.invuln > 0 && p.dashT <= 0 && Math.floor(time * 20) % 2 === 0;
@@ -1466,7 +1653,7 @@ const Game = (() => {
     blit(pc, p.x, p.y + p.recoil * 3 * k, p.w, p.h, p.tilt * 0.28, (1 - Math.abs(p.tilt) * 0.2) * flap, 1);
     if (debuffs.fatigue > 0) {
       ctx.globalAlpha = 0.3;
-      blit(sprite(skinSprite, p.w, p.h, 'purple'), p.x, p.y + p.recoil * 3 * k, p.w, p.h, p.tilt * 0.28, (1 - Math.abs(p.tilt) * 0.2) * flap, 1);
+      blit(sprite(p.skinKey, p.w, p.h, 'purple'), p.x, p.y + p.recoil * 3 * k, p.w, p.h, p.tilt * 0.28, (1 - Math.abs(p.tilt) * 0.2) * flap, 1);
     }
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'lighter';
@@ -1499,7 +1686,100 @@ const Game = (() => {
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';
     }
-    drawDrones();
+  }
+  const netColor = (pid) => (typeof Net !== 'undefined' ? Net.color(pid) : '#3ee6ff');
+  /** Co-op: a small name tag (with hearts) above every ship. */
+  function drawTags() {
+    const k = view.k;
+    const fs = Math.round(clamp(8 * k, 7, 10));
+    const hs = fs * 1.15;
+    const gap = fs * 0.6;
+    for (const p of players) {
+      if (!p.alive || p.intro > 0.6) continue;
+      ctx.font = `${fs}px ${FONT}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const name = (p === me ? 'YOU' : (p.name || 'P' + p.pid)).toUpperCase();
+      const num = String(Math.max(0, p.hp));
+      const nw = ctx.measureText(name).width;
+      const hw = ctx.measureText(num).width;
+      const total = nw + gap + hs + 2 + hw;
+      const x0 = p.x - total / 2;
+      const y = p.y - p.h * 0.62 - fs * 1.3;
+      world();
+      ctx.globalAlpha = 0.75;
+      ctx.fillStyle = 'rgba(6,8,22,.85)';
+      roundRect(ctx, x0 - 5, y - fs * 0.95, total + 10, fs * 1.9, fs * 0.6);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = netColor(p.pid);
+      ctx.fillText(name, x0 + nw / 2, y + 1);
+      blit(sprite('heart', hs, hs * (237 / 280)), x0 + nw + gap + hs / 2, y, hs, hs * (237 / 280));
+      world();
+      ctx.font = `${fs}px ${FONT}`;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(num, x0 + nw + gap + hs + 2 + hw / 2, y + 1);
+    }
+    ctx.globalAlpha = 1;
+  }
+  function updateHeartFx(dt) {
+    for (const f of heartFx) {
+      f.t += dt;
+      const p = players.find((q) => q.pid === f.pid);
+      if (p && p.alive) { f.x = p.x; f.y = p.y - p.h * 0.62; }
+    }
+    for (let i = heartFx.length - 1; i >= 0; i--) if (heartFx[i].t > 1.3) heartFx.splice(i, 1);
+  }
+  function drawHeartFx() {
+    const k = view.k;
+    const S = 30 * k;
+    const H = S * (237 / 280);
+    for (const f of heartFx) {
+      const t = f.t;
+      const x = f.x;
+      const y = f.y - 34 * k - t * 26 * k;
+      const img = sprite('heart', S, H);
+      if (f.d < 0) {
+        // pops in, cracks down the middle and the two halves tumble away
+        const pop = t < 0.18 ? easeOutBack(t / 0.18) : 1;
+        if (t < 0.32) {
+          ctx.globalAlpha = 1;
+          blit(img, x, y, S, H, Math.sin(t * 60) * 0.12 * (t / 0.32), pop * 1.15, pop * 1.15);
+        } else {
+          const u = (t - 0.32) / 0.98;
+          ctx.globalAlpha = Math.max(0, 1 - u);
+          for (const side of [-1, 1]) {
+            at(x + side * (4 + u * 34) * k, y + u * u * 60 * k, 1, 1, side * u * 1.4);
+            const sw = img.width / 2;
+            ctx.drawImage(img, side < 0 ? 0 : sw, 0, sw, img.height, side < 0 ? -S / 2 : 0, -H / 2, S / 2, H);
+          }
+        }
+        ctx.globalAlpha = Math.max(0, 1 - t / 1.3);
+        popupText(`${f.d}`, x + S * 0.9, y - H * 0.2, '#ff4d5e', Math.round(clamp(11 * k, 9, 13)));
+      } else {
+        // gained: a heart swells up with a green glow
+        const pop = t < 0.25 ? easeOutBack(t / 0.25) : 1;
+        ctx.globalAlpha = Math.max(0, 1 - Math.max(0, t - 0.7) / 0.6);
+        ctx.globalCompositeOperation = 'lighter';
+        glow(C.green, x, y, S * 1.1, 0.5 * ctx.globalAlpha);
+        ctx.globalCompositeOperation = 'source-over';
+        blit(img, x, y, S, H, 0, pop, pop);
+        popupText(`+${f.d}`, x + S * 0.9, y - H * 0.2, '#56f08b', Math.round(clamp(11 * k, 9, 13)));
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+  function popupText(text, x, y, color, size) {
+    world();
+    ctx.font = `${size}px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = Math.max(3, size * 0.4);
+    ctx.strokeStyle = 'rgba(0,0,0,.75)';
+    ctx.strokeText(text, x, y);
+    ctx.fillStyle = color;
+    ctx.fillText(text, x, y);
   }
 
   // ================================================================ enemies
@@ -1632,7 +1912,7 @@ const Game = (() => {
     }
     if (DEBUT.has(type) && !seen.has(type)) {
       seen.add(type);
-      UI.toast(`NEW MOB · ${T.name}`);
+      U.toast(`NEW MOB · ${T.name}`);
     }
     enemies.push(e);
     return e;
@@ -1685,7 +1965,7 @@ const Game = (() => {
     const k = view.k;
     burst(e.x, e.y, C.purple, hiQ ? 14 : 6);
     P(e.x, e.y, 0, 0, 0.35, 60 * k, C.purple, RING);
-    Sfx.play('teleport');
+    sfx('teleport');
     if (away) { e.dead = true; return; }
     const p = player;
     const nx = clamp(p.x + rand(-230, 230) * k, e.w, view.w - e.w);
@@ -1706,7 +1986,7 @@ const Game = (() => {
     if (b.kind === 'dfire') {
       explode(b.x, b.y, PAL.acid, 1, C.pink);
       addHazard('acid', b.x, b.y, 70 * view.k, 4);
-      Sfx.play('explode', 1.2);
+      sfx('explode', 1.2);
       return;
     }
     explode(b.x, b.y, PAL.fire, b.big ? 2 : 1.2, C.orange);
@@ -1716,7 +1996,7 @@ const Game = (() => {
       const a = (i / n) * TAU + rand(-0.1, 0.1);
       eShoot(b.x, b.y, Math.cos(a) * sp, Math.sin(a) * sp, 'shard');
     }
-    Sfx.play('explode', 1.3);
+    sfx('explode', 1.3);
   }
 
   const BEHAVIOR = {
@@ -1743,7 +2023,7 @@ const Game = (() => {
           const spread = wave.n >= 8 || e.type === 'wskel' || e.elite ? [-0.18, 0, 0.18] : [0];
           for (const s of spread) eShoot(e.x, e.y + e.h * 0.3, Math.cos(a + s) * sp, Math.sin(a + s) * sp, 'arrow');
           e.fire = rand(1.5, 2.3);
-          Sfx.play('eshoot');
+          sfx('eshoot');
         }
         if (e.t2 > e.stay) { e.mode = 2; e.vy = 0; }
       } else {
@@ -1773,7 +2053,7 @@ const Game = (() => {
       e.x += e.vx * dt;
       e.y += e.vy * dt;
       if (p.alive && d < 105 * k) {
-        if (e.fuse === 0) Sfx.play('fuse');
+        if (e.fuse === 0) sfx('fuse');
         e.fuse += dt;
       } else {
         e.fuse = Math.max(0, e.fuse - dt * 0.8);
@@ -1812,7 +2092,7 @@ const Game = (() => {
           e.rot = a - Math.PI / 2;
           e.mode = 2;
           e.t2 = 0.7;
-          Sfx.play('vex');
+          sfx('vex');
         }
       } else {
         e.x += e.vx * dt;
@@ -1837,7 +2117,7 @@ const Game = (() => {
         e.x = clamp(e.bx + Math.sin(e.t2 * 0.6) * 90 * k, e.w, view.w - e.w);
         e.y = e.ty + Math.sin(e.t2 * 1.5) * 8 * k;
         e.cast -= dt * wave.fireMul * e.fr;
-        if (e.cast <= 0.9 && !e.casting) { e.casting = true; Sfx.play('cast'); }
+        if (e.cast <= 0.9 && !e.casting) { e.casting = true; sfx('cast'); }
         if (e.casting && hiQ && Math.random() < dt * 30) {
           const a = rand(TAU);
           P(e.x + Math.cos(a) * 44 * k, e.y + e.h * 0.1 + Math.sin(a) * 16 * k, 0, -60 * k, 0.5, 8 * k, C.purple, GLOW, 1);
@@ -1857,7 +2137,7 @@ const Game = (() => {
         if (e.fire <= 0 && player.alive) {
           fan(e.x, e.y + e.h * 0.3, 5, 0.2, bulletSpeed(220), 'magic');
           e.fire = rand(2.4, 3.2);
-          Sfx.play('eshoot');
+          sfx('eshoot');
         }
         e.life -= dt;
         if (e.life <= 0) e.mode = 2;
@@ -1898,7 +2178,7 @@ const Game = (() => {
           e.sq = 1.1;
           for (let i = 0; i < (hiQ ? 5 : 2); i++) P(e.x + rand(-0.4, 0.4) * e.w, e.y + e.h * 0.4, rand(-80, 80) * k, -rand(40, 120) * k, 0.45, rand(3, 6) * k, pick(e.T.pal), CUBE, 2, 400 * k);
           if (e.type === 'magmacube' && e.y > 0) ring(e.x, e.y, 6, bulletSpeed(180), 'shard');
-          if (e.y > 0) Sfx.play('slime');
+          if (e.y > 0) sfx('slime');
         }
       }
     },
@@ -1921,7 +2201,7 @@ const Game = (() => {
             eShoot(e.x, e.y + e.h * 0.2, Math.cos(a) * sp, Math.sin(a) * sp, 'fire');
             e.burst -= 1;
             e.burstT = 0.14;
-            Sfx.play('blaze');
+            sfx('blaze');
             if (e.burst === 0) e.fire = rand(2.2, 3);
           }
         } else {
@@ -1950,7 +2230,7 @@ const Game = (() => {
         e.t2 -= dt;
         e.x = damp(e.x, p.x, 0.8, dt);
         e.y += Math.sin(e.t * 3) * 8 * k * dt;
-        if (e.t2 <= 0 && p.alive) { e.mode = 1; e.t2 = 0.55; e.lx = p.x; e.ly = p.y; Sfx.play('stare'); }
+        if (e.t2 <= 0 && p.alive) { e.mode = 1; e.t2 = 0.55; e.lx = p.x; e.ly = p.y; sfx('stare'); }
       } else if (e.mode === 1) {
         // stare — telegraph the lunge
         e.t2 -= dt;
@@ -2003,7 +2283,7 @@ const Game = (() => {
             const a = -Math.PI / 2 + (i - (n - 1) / 2) * 0.9;
             eShoot(e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp, 'shulk');
           }
-          Sfx.play('shulker');
+          sfx('shulker');
         }
         if (c < 1.8) e.shot = false;
         e.life -= dt;
@@ -2032,7 +2312,7 @@ const Game = (() => {
           const b = eShoot(e.x, e.y + e.h * 0.25, Math.cos(a) * sp, Math.sin(a) * sp, 'ghastball');
           b.fuse = 1.9;
           e.fire = rand(3.2, 4.2);
-          Sfx.play('ghast');
+          sfx('ghast');
         }
         e.life -= dt;
         if (e.life <= 0) e.mode = 2;
@@ -2053,7 +2333,7 @@ const Game = (() => {
       if (e.fire <= 0) {
         ring(e.x, e.y, 12, bulletSpeed(170), 'orb');
         P(e.x, e.y, 0, 0, 0.5, 90 * k, C.cyan, RING);
-        Sfx.play('shriek');
+        sfx('shriek');
         e.fire = 2.4;
       }
       e.life -= dt;
@@ -2073,7 +2353,7 @@ const Game = (() => {
         if (e.fire <= 0 && player.alive) {
           fan(e.x, e.y, 2, 0.14, bulletSpeed(280), 'spike');
           e.fire = rand(1.8, 2.4);
-          Sfx.play('eshoot');
+          sfx('eshoot');
         }
         e.life -= dt;
         if (e.life <= 0) { e.mode = 2; e.vy = 0; }
@@ -2127,11 +2407,15 @@ const Game = (() => {
    */
   const bossSeconds = (level, mark) => Math.min(56, 30 + (level - 1) * 3.5) * (1 + (mark - 1) * 0.12);
   function bossMaxHp(def, level, mark) {
-    const actual = WEAPON_DPS[player.weapon] * player.power;
-    const expected = (level === 1 ? WEAPON_DPS[3] : WEAPON_DPS[5]) * (1 + 0.12 * (level - 1));
+    // in co-op the whole team's firepower counts (a little less than one full boss per player)
+    const team = players.filter((p) => !p.left);
+    const n = Math.max(1, team.length);
+    const actual = team.reduce((s, p) => s + WEAPON_DPS[p.weapon] * p.power, 0) || WEAPON_DPS[1];
+    const expected = (level === 1 ? WEAPON_DPS[3] : WEAPON_DPS[5]) * (1 + 0.12 * (level - 1)) * n;
     const seconds = bossSeconds(level, mark);
-    const hp = ((actual + expected) / 2) * 0.8 * seconds * (def.hpw || 1) * diff.bhp;
-    return Math.round(Math.max(hp, def.hp * (1 + (level - 1) * 0.35) * diff.bhp));
+    const coop = n > 1 ? 0.85 : 1;
+    const hp = ((actual + expected) / 2) * 0.8 * seconds * (def.hpw || 1) * diff.bhp * coop;
+    return Math.round(Math.max(hp, def.hp * (1 + (level - 1) * 0.35) * diff.bhp * (1 + (n - 1) * 0.6)));
   }
   const nextBossDef = () => BK.ALL[BK.ORDER[bossLevel % BK.ORDER.length]];
 
@@ -2158,9 +2442,9 @@ const Game = (() => {
     if (def.init) def.init(e);
     enemies.push(e);
     boss = e;
-    UI.bossBar(true, `${e.title} · LV ${bossLevel}`, def.phases);
-    UI.letterbox(true);
-    Sfx.play(bossLevel % 2 ? 'roar' : 'wither');
+    U.bossBar(true, `${e.title} · LV ${bossLevel}`, def.phases);
+    U.letterbox(true);
+    sfx(bossLevel % 2 ? 'roar' : 'wither');
     shake(0.5);
   }
   /** Shared entrance + death sequence. Returns true while the boss is busy with them. */
@@ -2185,12 +2469,12 @@ const Game = (() => {
         e.inv = false;
         e.atk = 1.4;
         e.grow = 1;
-        Sfx.play(bossLevel % 2 ? 'roar' : 'wither');
+        sfx(bossLevel % 2 ? 'roar' : 'wither');
         shake(0.8);
         P(e.x, e.y, 0, 0, 0.8, 320 * k, MARK_GLOW[e.mark] || def.glow, RING);
         if (def.onFight) def.onFight(e);
-        UI.letterbox(false);
-        UI.banner(e.title, def.intro[e.mark - 1] || `MK ${ROMAN[e.mark - 1] || e.mark} · ALL MOVES EMPOWERED`, 'bosscard', 3000);
+        U.letterbox(false);
+        U.banner(e.title, def.intro[e.mark - 1] || `MK ${ROMAN[e.mark - 1] || e.mark} · ALL MOVES EMPOWERED`, 'bosscard', 3000);
       }
       return true;
     }
@@ -2202,7 +2486,7 @@ const Game = (() => {
       if (e.boomT <= 0) {
         e.boomT = 0.11;
         explode(e.x + rand(-0.4, 0.4) * e.w, e.y + rand(-0.35, 0.35) * e.h, e.T.pal, 0.8, def.glow);
-        Sfx.play('explode', 1);
+        sfx('explode', 1);
         shake(0.25);
       }
       if (e.dieT > 2.1) bossFinale(e);
@@ -2228,10 +2512,10 @@ const Game = (() => {
       e.inv = true;
       e.invT = 2.2;
       e.stun = 0;
-      Sfx.play(bossLevel % 2 ? 'roar' : 'wither');
+      sfx(bossLevel % 2 ? 'roar' : 'wither');
       shake(1);
       slowmo(0.5, 0.4);
-      UI.flash('hurt');
+      U.flash('hurt');
       P(e.x, e.y, 0, 0, 1, 460 * k, C.red, RING);
       if (def.ultimate) def.ultimate(e);
     }
@@ -2240,8 +2524,8 @@ const Game = (() => {
     const berserkAt = bossSeconds(e.level, e.mark) * 2.2 * diff.bhp * (diffKey === 'hard' ? 0.9 : 1);
     if (!e.berserk && e.fightT > berserkAt) {
       e.berserk = true;
-      UI.banner('BERSERK!', 'IT GROWS FASTER — FINISH IT!', 'warning', 1800);
-      Sfx.play(bossLevel % 2 ? 'roar' : 'wither');
+      U.banner('BERSERK!', 'IT GROWS FASTER — FINISH IT!', 'warning', 1800);
+      sfx(bossLevel % 2 ? 'roar' : 'wither');
       shake(0.8);
     }
 
@@ -2266,7 +2550,7 @@ const Game = (() => {
     updateSpiral(e, dt);
 
     // harassment fire between (and during) attacks — there is never a safe moment
-    if (def.harass && player.alive && !e.spiral && !e.beams.length) {
+    if (def.harass && player && player.alive && !e.spiral && !e.beams.length) {
       e.harassT -= dt * pace;
       if (e.harassT <= 0) {
         harassing = true;
@@ -2306,10 +2590,10 @@ const Game = (() => {
     clearBossMoves(e);
     // every new phase comes with a fresh shield that has to be broken first
     e.shield = e.shieldMax = Math.round(e.maxHp * diff.shield * (1 + (e.mark - 1) * 0.2));
-    Sfx.play(bossLevel % 2 ? 'roar' : 'wither');
+    sfx(bossLevel % 2 ? 'roar' : 'wither');
     shake(0.7);
     const txt = def.phaseText && def.phaseText[ph];
-    if (txt) UI.banner(txt[0], `${txt[1]}  ·  BREAK ITS SHIELD!`, 'phase', 1900);
+    if (txt) U.banner(txt[0], `${txt[1]}  ·  BREAK ITS SHIELD!`, 'phase', 1900);
     P(e.x, e.y, 0, 0, 0.9, 380 * view.k, ph === 3 ? C.red : MARK_GLOW[e.mark] || def.glow, RING);
     if (def.onPhase) def.onPhase(e, ph);
   }
@@ -2319,13 +2603,13 @@ const Game = (() => {
     clearBossMoves(e);
     e.stun = diffKey === 'hard' ? 2.1 : 2.7;
     popup(e.x, e.y - e.h * 0.4, 'SHIELD BROKEN!', '#8fd8ff', 14, 1.6);
-    // reward: a heart if you're hurt, otherwise a random power-up
-    spawnPickup(player.hp < player.maxHp ? 'heart' : pick(POWER_POOL), e.x, e.y + e.h * 0.3);
+    // reward: a heart if anyone is hurt, otherwise a random power-up
+    spawnPickup(players.some((p) => p.alive && p.hp < p.maxHp) ? 'heart' : pick(POWER_POOL), e.x, e.y + e.h * 0.3);
     burst(e.x, e.y, C.cyan, hiQ ? 30 : 12, 420);
     P(e.x, e.y, 0, 0, 0.7, Math.max(e.w, e.h) * 0.9, C.cyan, RING);
     P(e.x, e.y, 0, 0, 0.5, Math.max(e.w, e.h) * 0.7, C.white, GLOW);
-    Sfx.play('explode', 1.6);
-    Sfx.play('levelup');
+    sfx('explode', 1.6);
+    sfx('levelup');
     shake(0.6);
     slowmo(0.35, 0.4);
     Input.vibrate([40, 30, 60]);
@@ -2363,12 +2647,14 @@ const Game = (() => {
     const p = player;
     for (const b of e.beams) {
       b.t += dt;
-      if (b.track && b.t < b.warn * 0.7 && p.alive) b.x = damp(b.x, p.x, 2.5, dt);
+      if (b.track && b.t < b.warn * 0.7 && p && p.alive) b.x = damp(b.x, p.x, 2.5, dt);
       if (b.t >= b.warn && b.t < b.warn + b.fire) {
-        if (!b.fired) { b.fired = true; Sfx.play('beam'); shake(0.5); Input.vibrate(40); }
+        if (!b.fired) { b.fired = true; sfx('beam'); shake(0.5); Input.vibrate(40); }
         if (b.sweep) b.x += b.vx * dt;
         const top = b.sky ? 0 : e.y;
-        if (p.alive && Math.abs(p.x - b.x) < b.w * 0.45 + p.r && p.y > top) hurtPlayer(heavyDmg());
+        for (const q of players) {
+          if (q.alive && Math.abs(q.x - b.x) < b.w * 0.45 + hitR(q) && q.y > top) hurtPlayer(heavyDmg(), q);
+        }
         if (hiQ || Math.random() < 0.5) P(b.x + rand(-b.w / 2, b.w / 2), view.h, rand(-100, 100) * k, -rand(100, 420) * k, 0.4, rand(2, 3.5) * k, b.pal === 'fire' ? C.orange : C.cyan, SPARK, 2);
       } else if (b.t >= b.warn + b.fire) {
         b.done = true;
@@ -2474,9 +2760,9 @@ const Game = (() => {
     }
     hazards.length = 0;
     slowmo(1.6, 0.3);
-    Sfx.play(bossLevel % 2 ? 'roar' : 'wither');
+    sfx(bossLevel % 2 ? 'roar' : 'wither');
     shake(0.8);
-    UI.bossBar(false);
+    U.bossBar(false);
   }
   function bossFinale(e) {
     const k = view.k;
@@ -2486,9 +2772,9 @@ const Game = (() => {
     P(e.x, e.y, 0, 0, 1.1, 420 * k, MARK_GLOW[e.mark] || e.def.glow, RING);
     P(e.x, e.y, 0, 0, 0.8, 300 * k, C.white, RING);
     P(e.x, e.y, 0, 0, 0.6, 320 * k, C.white, GLOW);
-    Sfx.play('bigExplode');
+    sfx('bigExplode');
     shake(1);
-    UI.flash('white');
+    U.flash('white');
     Input.vibrate([80, 40, 160]);
     stats.bosses += 1;
     stats.kills += 1;
@@ -2496,14 +2782,16 @@ const Game = (() => {
     if (!wave.hurt) Trophies.unlock('flawless');
     const pts = addScore(e.score * e.level);
     popup(e.x, e.y, '+' + fmt(pts), '#ffe066', 18, 2);
-    // every boss you beat makes your guns hit harder, keeping pace with tougher mobs
-    player.power = Math.round((player.power + 0.12) * 100) / 100;
-    popup(player.x, player.y - player.h * 1.4, `POWER ${Math.round(player.power * 100)}%`, '#ffe066', 12, 1.8);
+    // every boss you beat makes your guns hit harder, keeping pace with tougher mobs (the whole team in co-op)
+    for (const p of players) {
+      p.power = Math.round((p.power + 0.12) * 100) / 100;
+      if (p.alive) popup(p.x, p.y - p.h * 1.4, `POWER ${Math.round(p.power * 100)}%`, '#ffe066', 12, 1.8);
+    }
     nova = 100;
     checkNovaReady();
-    if (player.weapon < 5) { spawnPickup('star', e.x, e.y); starOut = true; }
+    if (players.some((p) => p.alive && p.weapon < 5)) { spawnPickup('star', e.x, e.y); starOut = true; }
     spawnPickup('heart', e.x - 40 * k, e.y);
-    if (!player.totem && !totemOut) { spawnPickup('totem', e.x + 40 * k, e.y); totemOut = true; }
+    if (players.some((p) => p.alive && !p.totem) && !totemOut) { spawnPickup('totem', e.x + 40 * k, e.y); totemOut = true; }
     else spawnPickup(pick(POWER_POOL), e.x + 40 * k, e.y);
     for (let i = 0; i < 8; i++) spawnPickup('gem', e.x + rand(-60, 60) * k, e.y + rand(-30, 30) * k, rand(-160, 160) * k, rand(-260, -80) * view.vs);
     if (run.mode === 'hardcore') Trophies.unlock(run.tier);
@@ -2526,9 +2814,10 @@ const Game = (() => {
   function comboMult() { return Math.min(8, 1 + Math.floor(Math.sqrt(combo / 2.2))); }
   function resetCombo() { combo = 0; comboT = 0; lastMult = 1; }
   function checkNovaReady() {
-    if (nova >= 100 && !novaReadyShown && player && player.alive) {
+    if (nova >= 100 && !novaReadyShown && me && me.alive) {
       novaReadyShown = true;
-      popup(player.x, player.y - player.h * 1.1, 'NOVA READY', '#ff6ad5', 11, 1.3);
+      if (!net) popup(me.x, me.y - me.h * 1.1, 'NOVA READY', '#ff6ad5', 11, 1.3);
+      else fwd('s', 'ready', null); // co-op: the team meter is full, everyone hears it
       Sfx.play('ready');
     }
   }
@@ -2551,7 +2840,7 @@ const Game = (() => {
       if (e.shield > 0) {
         e.shield -= dmg;
         spark(hx, hy, C.cyan, hiQ ? 2 : 1);
-        Sfx.play('armor');
+        sfx('armor');
         if (e.shield <= 0) breakShield(e);
         return;
       }
@@ -2566,7 +2855,7 @@ const Game = (() => {
       const sp = rand(120, 380) * view.k;
       P(hx, hy, Math.cos(a) * sp, Math.sin(a) * sp, rand(0.12, 0.25), rand(1.5, 2.6) * view.k, armored ? C.grey : pick(e.T.pal), SPARK, 4);
     }
-    Sfx.play(armored ? 'armor' : 'hit');
+    sfx(armored ? 'armor' : 'hit');
     if (e.T.boss && chargesNova(src)) nova = Math.min(100, nova + 0.1);
     if (e.hp <= 0) killEnemy(e, src);
   }
@@ -2578,14 +2867,14 @@ const Game = (() => {
       burst(e.x, e.y, C.blue, 14);
       P(e.x, e.y, 0, 0, 0.4, 90 * k, C.blue, RING);
       popup(e.x, e.y, 'FAKE!', '#8fb0ff', 11, 0.9);
-      Sfx.play('pop');
+      sfx('pop');
       return;
     }
     const s = e.type === 'evoker' || e.type === 'ghast' ? 1.7 : e.type === 'vex' || e.type === 'phantom' ? 0.75 : 1.1;
     if (e.type !== 'creeper') {
       explode(e.x, e.y, e.T.pal, s * (e.elite ? 1.4 : 0.85), e.elite ? C.gold : e.T.glow);
       shatter(e);
-      Sfx.play('explode', s);
+      sfx('explode', s);
       shake(0.1 * s);
     }
     if (blastDepth > 0) blastKills += 1;
@@ -2596,9 +2885,11 @@ const Game = (() => {
     comboT = COMBO_TIME;
     if (combo > stats.maxCombo) stats.maxCombo = combo;
     const mult = comboMult();
-    if (mult > lastMult && player.alive) {
-      popup(player.x, player.y - player.h * 0.9, `x${mult} COMBO!`, MULT_COL[mult], 12, 1.1);
-      Sfx.play('combo', mult);
+    // the team shares one combo in co-op, so it's announced where the kill happened
+    const at0 = net ? e : player;
+    if (mult > lastMult && at0 && (net || player.alive)) {
+      popup(at0.x, at0.y - (at0.h || 0) * 0.9, `x${mult} COMBO!`, MULT_COL[mult], 12, 1.1);
+      sfx('combo', mult);
       if (mult >= 8) Trophies.unlock('combo');
     }
     lastMult = mult;
@@ -2638,7 +2929,7 @@ const Game = (() => {
     blastDepth += 1;
     explode(x, y, pal, R / (80 * view.k), gc);
     P(x, y, 0, 0, 0.45, R, gc, RING);
-    Sfx.play('explode', 1.5);
+    sfx('explode', 1.5);
     shake(0.3);
     for (const o of enemies) {
       if (o.dead) continue;
@@ -2659,17 +2950,17 @@ const Game = (() => {
     t.dead = true;
     const k = view.k;
     switch (t.kind) {
-      case 'tnt': blast(t.x, t.y, 100 * k, 6 * player.power, PAL.tnt, C.orange, byPlayer, 'BOOM!', 50); break;
+      case 'tnt': blast(t.x, t.y, 100 * k, 6 * teamPower(), PAL.tnt, C.orange, byPlayer, 'BOOM!', 50); break;
       case 'ghastball':
-        if (byPlayer) blast(t.x, t.y, (t.big ? 170 : 125) * k, (t.big ? 20 : 9) * player.power, PAL.fire, C.orange, true, 'DEFLECTED!', t.big ? 400 : 150);
+        if (byPlayer) blast(t.x, t.y, (t.big ? 170 : 125) * k, (t.big ? 20 : 9) * teamPower(), PAL.fire, C.orange, true, 'DEFLECTED!', t.big ? 400 : 150);
         else fuseBurst(t);
         break;
-      case 'bskull': blast(t.x, t.y, 70 * k, 4 * player.power, PAL.bskull, C.blue, byPlayer, 'SHATTERED!', 60); break;
+      case 'bskull': blast(t.x, t.y, 70 * k, 4 * teamPower(), PAL.bskull, C.blue, byPlayer, 'SHATTERED!', 60); break;
       default:
         spark(t.x, t.y, t.c, 6);
         P(t.x, t.y, 0, 0, 0.3, 30 * k, t.kind === 'hfire' ? C.orange : C.purple, RING);
         if (byPlayer) { const v = addScore(20); popup(t.x, t.y, '+' + v, '#e8e09a', 8, 0.6); }
-        Sfx.play('pop');
+        sfx('pop');
         break;
     }
   }
@@ -2681,15 +2972,17 @@ const Game = (() => {
     explode(e.x, e.y, PAL.creeper, 2, C.green);
     shatter(e);
     P(e.x, e.y, 0, 0, 0.5, R * 1.1, C.white, RING);
-    Sfx.play('explode', 1.8);
+    sfx('explode', 1.8);
     shake(0.45);
     Input.vibrate(30);
-    if (!byPlayer && player.alive && dist2(e.x, e.y, player.x, player.y) < (R * 0.8) * (R * 0.8)) hurtPlayer();
+    if (!byPlayer) {
+      for (const q of players) if (q.alive && dist2(e.x, e.y, q.x, q.y) < (R * 0.8) * (R * 0.8)) hurtPlayer(1, q);
+    }
     // chain reaction
     for (const o of enemies) {
       if (o === e || o.dead) continue;
       const rr = R + o.r;
-      if (dist2(o.x, o.y, e.x, e.y) < rr * rr) hurtEnemy(o, 6 * player.power, o.x, o.y, 'blast');
+      if (dist2(o.x, o.y, e.x, e.y) < rr * rr) hurtEnemy(o, 6 * teamPower(), o.x, o.y, 'blast');
     }
     for (const t of ebullets) {
       if (!t.dead && t.hp && dist2(t.x, t.y, e.x, e.y) < R * R) popShootable(t, true);
@@ -2708,14 +3001,18 @@ const Game = (() => {
     P(e.x, view.h, 0, 0, 0.5, 60 * view.k, C.red, GLOW);
   }
   function rollDrops(e) {
-    if (player.weapon < 5 && !starOut && stats.kills >= WEAPON_KILLS[player.weapon]) {
+    // weapon stars follow the weakest gun on the team; each extra teammate makes them come a bit sooner
+    const alive = alivePlayers();
+    const lowest = alive.reduce((m, p) => Math.min(m, p.weapon), 5);
+    const need = WEAPON_KILLS[lowest] / (1 + (players.length - 1) * 0.3);
+    if (lowest < 5 && !starOut && stats.kills >= need) {
       spawnPickup('star', e.x, e.y);
       starOut = true;
       return;
     }
     const luck = e.type === 'evoker' || e.type === 'ghast' ? 3 : 1;
     // totems are a little more common when hearts never drop (Hardcore Brutal)
-    if (!player.totem && !totemOut && Math.random() < 0.005 * luck * (rules.heartDrops ? 1 : 1.6)) {
+    if (alive.some((p) => !p.totem) && !totemOut && Math.random() < 0.005 * luck * (rules.heartDrops ? 1 : 1.6)) {
       spawnPickup('totem', e.x, e.y);
       totemOut = true;
       return;
@@ -2730,14 +3027,42 @@ const Game = (() => {
     const heart = power + 0.018 * luck;
     if (r < gem) spawnPickup('gem', e.x, e.y);
     else if (r < power) spawnPickup(pick(POWER_POOL), e.x, e.y);
-    else if (r < heart && player.hp < player.maxHp) spawnPickup('heart', e.x, e.y);
+    else if (r < heart && alive.some((p) => p.hp < p.maxHp)) spawnPickup('heart', e.x, e.y);
+  }
+
+  /**
+   * Co-op: every mob (and boss) hunts one ship at a time — usually the closest, switching every few
+   * seconds so the pressure is shared. Its AI then sees that ship as `player`.
+   */
+  function targetFor(e, dt) {
+    let t = e.tgt;
+    e.tgtT = (e.tgtT || 0) - dt;
+    if (!t || !t.alive || t.left || e.tgtT <= 0) {
+      const alive = alivePlayers();
+      if (!alive.length) return t || me || players[0];
+      if (alive.length === 1) t = alive[0];
+      else {
+        // weighted by closeness, with a random twist so bosses switch between players
+        let best = null;
+        let bs = Infinity;
+        for (const p of alive) {
+          const s = Math.hypot(p.x - e.x, p.y - e.y) * rand(0.6, 1.4);
+          if (s < bs) { bs = s; best = p; }
+        }
+        t = best;
+      }
+      e.tgt = t;
+      e.tgtT = e.T.boss ? rand(3, 6) : rand(2, 4);
+    }
+    return t;
   }
 
   function updateEnemies(dt) {
-    const p = player;
+    const multi = players.length > 1;
     for (let i = 0; i < enemies.length; i++) {
       const e = enemies[i];
       if (e.dead) continue;
+      if (multi) player = targetFor(e, dt);
       e.t += dt;
       if (e.spawn < 1) e.spawn = Math.min(1, e.spawn + dt * 3.5);
       if (e.flash > 0) e.flash -= dt;
@@ -2746,20 +3071,26 @@ const Game = (() => {
       if (e.T.boss) bossUpdate(e, dt);
       else BEHAVIOR[e.type](e, dt);
       if (e.dead) continue;
-      if (p.alive && p.intro === 0 && e.mode !== 'dying' && e.mode !== 'enter' && e.type !== 'crystal' && hits(e, p.x, p.y, p.r * 1.8)) {
-        if (e.type === 'creeper') {
-          creeperBlast(e, false);
-          continue;
+      if (e.mode !== 'dying' && e.mode !== 'enter' && e.type !== 'crystal') {
+        for (const p of players) {
+          if (!p.alive || p.intro > 0 || !hits(e, p.x, p.y, hitR(p) * 1.8)) continue;
+          if (e.type === 'creeper') {
+            creeperBlast(e, false);
+            break;
+          }
+          // touching a boss only costs 2 hearts (Hard) while it is diving / charging / slamming at you
+          const lunging = e.T.boss && (e.charge || e.swoop || e.rush || e.hop || e.dash);
+          const res = hurtPlayer(lunging ? heavyDmg() : 1, p);
+          if (res && !e.T.boss) hurtEnemy(e, res === 1 ? 8 : 3, e.x, e.y, 'ram');
+          if (e.dead) break;
         }
-        // touching a boss only costs 2 hearts (Hard) while it is diving / charging / slamming at you
-        const lunging = e.T.boss && (e.charge || e.swoop || e.rush || e.hop || e.dash);
-        const res = hurtPlayer(lunging ? heavyDmg() : 1);
-        if (res && !e.T.boss) hurtEnemy(e, res === 1 ? 8 : 3, e.x, e.y, 'ram');
       }
+      if (e.dead) continue;
       if (e.T.boss || e.dead || e.T.persist) continue;
       if (e.y - e.h / 2 > view.h + 10) { e.dead = true; escaped(e); }
       else if (e.x < -e.w * 2 || e.x > view.w + e.w * 2 || e.t > 45) e.dead = true;
     }
+    player = me;
   }
 
   // ---- per-mob extras
@@ -3077,12 +3408,13 @@ const Game = (() => {
     ctx.globalAlpha = 1;
   }
   function drawDarkness() {
-    if (dark < 0.02 || !player) return;
-    const d = view.dpr;
+    // the light follows your own ship (or the teammate you are watching)
+    const lp = viewTarget();
+    if (dark < 0.02 || !lp) return;
     const k = view.k;
-    ctx.setTransform(d, 0, 0, d, 0, 0);
-    const px = player.x + camX;
-    const py = player.y + camY;
+    base();
+    const px = lp.x + camX;
+    const py = lp.y + camY;
     const pulse = 1 + Math.sin(time * 4) * 0.06;
     const g = ctx.createRadialGradient(px, py, 90 * k * pulse, px, py, 250 * k * pulse);
     g.addColorStop(0, 'rgba(1,3,6,0)');
@@ -3106,6 +3438,8 @@ const Game = (() => {
   }
   function updateBullets(dt) {
     const k = view.k;
+    // on a guest's screen every shot is just for show: the host decides what gets hit
+    const shadow = net && net.role === 'guest';
     for (const b of bullets) {
       if (b.dead) continue;
       if (b.homing) {
@@ -3127,6 +3461,16 @@ const Game = (() => {
       b.y += b.vy * dt;
       b.life -= dt;
       if (b.life <= 0 || b.y < -50 || b.y > view.h + 50 || b.x < -50 || b.x > view.w + 50) { b.dead = true; continue; }
+      if (shadow) {
+        for (const e of enemies) {
+          if (e.dead || e.mode === 'dying' || !hits(e, b.x, b.y, b.r)) continue;
+          spark(b.x, b.y, e.inv ? C.white : pick(e.T.pal || [C.white]), 2);
+          if (!e.T.boss) e.flash = Math.max(e.flash || 0, 0.06);
+          b.dead = true;
+          break;
+        }
+        continue;
+      }
       for (const e of enemies) {
         if (e.dead || e === b.last || e.mode === 'dying') continue;
         // Blaze King's rods physically block shots
@@ -3183,30 +3527,39 @@ const Game = (() => {
     }
   }
 
-  function onGraze(b) {
-    const p = player;
+  function onGraze(b, p = player) {
     stats.grazes += 1;
     if (stats.grazes === 100) Trophies.unlock('graze');
     nova = Math.min(100, nova + 1.5);
     addScore(10 * comboMult());
     P((b.x + p.x) / 2, (b.y + p.y) / 2, rand(-80, 80) * view.k, rand(-80, 80) * view.k, 0.25, 8 * view.k, C.white, GLOW);
-    Sfx.play('graze');
+    if (p === me) Sfx.play('graze');
     checkNovaReady();
   }
+  function nearestPlayer(x, y) {
+    let best = null;
+    let bd = Infinity;
+    for (const p of players) {
+      if (!p.alive) continue;
+      const d = dist2(x, y, p.x, p.y);
+      if (d < bd) { bd = d; best = p; }
+    }
+    return best;
+  }
   function updateEBullets(dt) {
-    const p = player;
     const k = view.k;
-    const shieldR = p.w * 0.62;
     const grazeR = 26 * k;
+    const multi = players.length > 1;
     for (const b of ebullets) {
       if (b.dead) continue;
       const d = EB[b.kind];
       b.t += dt;
       b.life -= dt;
       const hom = d.homing || b.home;
-      if (hom && p.alive) {
+      const near = multi ? nearestPlayer(b.x, b.y) : (player && player.alive ? player : null);
+      if (hom && near) {
         const sp = Math.hypot(b.vx, b.vy);
-        const ang = turnToward(Math.atan2(b.vy, b.vx), Math.atan2(p.y - b.y, p.x - b.x), hom * dt);
+        const ang = turnToward(Math.atan2(b.vy, b.vx), Math.atan2(near.y - b.y, near.x - b.x), hom * dt);
         b.vx = Math.cos(ang) * sp;
         b.vy = Math.sin(ang) * sp;
       }
@@ -3216,7 +3569,7 @@ const Game = (() => {
       if (b.spin) b.rot += b.spin * dt;
       if (b.fuse > 0) {
         b.fuse -= dt;
-        if (b.fuse <= 0 || (p.alive && b.y > p.y - 70 * k && Math.abs(b.x - p.x) < 220 * k)) { fuseBurst(b); continue; }
+        if (b.fuse <= 0 || (near && b.y > near.y - 70 * k && Math.abs(b.x - near.x) < 220 * k)) { fuseBurst(b); continue; }
       }
       if (b.kind === 'lavab' && b.vy > 0 && b.y >= b.ty) {
         b.dead = true;
@@ -3226,28 +3579,31 @@ const Game = (() => {
       }
       if (b.life <= 0) { b.dead = true; spark(b.x, b.y, b.c, 3); continue; }
       if (b.y > view.h + 40 || b.y < -360 * k || b.x < -60 || b.x > view.w + 60) { b.dead = true; continue; }
-      if (!p.alive || p.intro > 0) continue;
-      const d2 = dist2(b.x, b.y, p.x, p.y);
-      if (buffs.shield > 0) {
-        const sr = shieldR + b.r;
-        if (d2 < sr * sr) {
-          if (b.hp) popShootable(b, true);
-          else { b.dead = true; spark(b.x, b.y, C.cyan, 5); }
-          Sfx.play('shield');
-          continue;
+      for (const p of players) {
+        if (!p.alive || p.intro > 0) continue;
+        const d2 = dist2(b.x, b.y, p.x, p.y);
+        if (buffs.shield > 0) {
+          const sr = p.w * 0.62 + b.r;
+          if (d2 < sr * sr) {
+            if (b.hp) popShootable(b, true);
+            else { b.dead = true; spark(b.x, b.y, C.cyan, 5); }
+            sfx('shield');
+            break;
+          }
         }
-      }
-      const hr = b.r + p.r;
-      if (d2 < hr * hr) {
-        if (hurtPlayer()) {
-          b.dead = true;
-          if (b.kind === 'tnt') popShootable(b, false);
-          else if (b.kind === 'dfire') fuseBurst(b);
-          else if (b.kind === 'ghastball' || b.kind === 'wskull' || b.kind === 'bskull' || b.kind === 'rock') explode(b.x, b.y, b.kind === 'bskull' ? PAL.bskull : b.kind === 'rock' ? PAL.ravager : PAL.fire, 0.8, b.c);
+        const hr = b.r + hitR(p);
+        if (d2 < hr * hr) {
+          if (hurtPlayer(1, p)) {
+            b.dead = true;
+            if (b.kind === 'tnt') popShootable(b, false);
+            else if (b.kind === 'dfire') fuseBurst(b);
+            else if (b.kind === 'ghastball' || b.kind === 'wskull' || b.kind === 'bskull' || b.kind === 'rock') explode(b.x, b.y, b.kind === 'bskull' ? PAL.bskull : b.kind === 'rock' ? PAL.ravager : PAL.fire, 0.8, b.c);
+            break;
+          }
+        } else if (!b.grazed && d2 < (hr + grazeR) * (hr + grazeR)) {
+          b.grazed = true;
+          onGraze(b, p);
         }
-      } else if (!b.grazed && d2 < (hr + grazeR) * (hr + grazeR)) {
-        b.grazed = true;
-        onGraze(b);
       }
     }
   }
@@ -3379,13 +3735,14 @@ const Game = (() => {
     });
   }
   function updatePickups(dt) {
-    const p = player;
     const k = view.k;
     for (const pk of pickups) {
       if (pk.dead) continue;
       pk.t += dt;
       pk.bob = Math.sin(pk.t * 4 + pk.ph) * 4 * k;
       let pulled = false;
+      // pulled toward (and collected by) the nearest ship
+      const p = players.length > 1 ? nearestPlayer(pk.x, pk.y) : me;
       if (p && p.alive && p.intro === 0) {
         const dx = p.x - pk.x;
         const dy = p.y - pk.y;
@@ -3397,7 +3754,7 @@ const Game = (() => {
           pk.y += (dy / d) * sp * dt;
           pulled = true;
         }
-        if (d < p.w * 0.5 + pk.r) { pk.dead = true; applyPickup(pk); continue; }
+        if (d < p.w * 0.5 + pk.r) { pk.dead = true; applyPickup(pk, p); continue; }
       }
       if (!pulled) {
         pk.vx = damp(pk.vx, 0, 1.5, dt);
@@ -3412,8 +3769,8 @@ const Game = (() => {
       }
     }
   }
-  function applyPickup(pk) {
-    const p = player;
+  /** Power-ups (overdrive, shield, magnet...) help the whole team in co-op; stars, hearts and totems go to `p`. */
+  function applyPickup(pk, p = player) {
     const d = PK[pk.type];
     const k = view.k;
     let label = '';
@@ -3426,7 +3783,7 @@ const Game = (() => {
       case 'clock': buffs.timewarp = BUFF_MAX.timewarp; label = 'TIME WARP!'; break;
       case 'trident': buffs.storm = BUFF_MAX.storm; stormT = 0.15; label = 'THUNDERSTORM!'; break;
       case 'allay':
-        if (buffs.drones <= 0) resetDrones();
+        if (buffs.drones <= 0) resetDrones(p);
         buffs.drones = BUFF_MAX.drones;
         label = 'ALLAY DRONES!';
         break;
@@ -3437,8 +3794,8 @@ const Game = (() => {
         break;
       case 'heart':
         debuffs.fatigue = 0;
-        if (p.hp < p.maxHp) { p.hp += 1; label = '+1 HEART'; }
-        else if (p.maxHp < MAX_HEARTS && rules.extraHearts) { p.maxHp += 1; p.hp += 1; label = 'MAX HEARTS UP!'; }
+        if (p.hp < p.maxHp) { p.hp += 1; label = '+1 HEART'; heartPop(p, 1); }
+        else if (p.maxHp < MAX_HEARTS && rules.extraHearts) { p.maxHp += 1; p.hp += 1; label = 'MAX HEARTS UP!'; heartPop(p, 1); }
         else label = '+' + addScore(500);
         break;
       case 'star':
@@ -3460,8 +3817,8 @@ const Game = (() => {
     popup(p.x, p.y - p.h * 0.8, label, d.c.s, pk.type === 'gem' ? 10 : 12, 1.1);
     P(p.x, p.y, 0, 0, 0.4, 70 * k, d.c, RING);
     for (let i = 0; i < 8; i++) P(p.x, p.y, rand(-200, 200) * k, rand(-200, 200) * k, 0.35, 8 * k, d.c, GLOW);
-    Sfx.play(pk.type === 'gem' ? 'pickup' : pk.type === 'star' ? 'levelup' : pk.type === 'totem' ? 'totem' : 'power');
-    Input.vibrate(15);
+    sfx(pk.type === 'gem' ? 'pickup' : pk.type === 'star' ? 'levelup' : pk.type === 'totem' ? 'totem' : 'power');
+    if (p === me) Input.vibrate(15);
   }
   function drawPickups() {
     const k = view.k;
@@ -3497,12 +3854,15 @@ const Game = (() => {
     wave.n = n;
     wave.cycle = Math.floor((n - 1) / 5);
     wave.boss = n % 5 === 0;
-    wave.hpMul = mobHp(n);
+    // co-op: tougher and more numerous mobs for each extra ship
+    const team = Math.max(1, players.filter((p) => !p.left).length);
+    wave.hpMul = mobHp(n) * (1 + (team - 1) * 0.3);
     wave.spdMul = 1 + Math.min(0.6, (n - 1) * 0.025);
     wave.fireMul = (1 + Math.min(1.2, (n - 1) * 0.045)) * diff.fire;
     wave.spawned = 0;
     wave.cleared = 0;
-    wave.budget = wave.boss ? 0 : Math.round(10 + n * 2.6 + wave.cycle * 3);
+    wave.budget = wave.boss ? 0 : Math.round((10 + n * 2.6 + wave.cycle * 3) * (1 + (team - 1) * 0.35));
+    if (net && run.mode === 'arcade') respawnDown();
     wave.interval = Math.max(0.32, 1.1 - n * 0.045);
     wave.timer = 1.4;
     wave.hurt = false;
@@ -3514,14 +3874,14 @@ const Game = (() => {
     if (wave.boss) {
       const def = nextBossDef();
       wave.bossT = 3.4;
-      UI.banner('WARNING', def.warning, 'warning', 3200);
-      Sfx.play('warning');
-      Sfx.music(def.music);
+      U.banner('WARNING', def.warning, 'warning', 3200);
+      sfx('warning');
+      music(def.music);
       Input.vibrate([80, 80, 80, 80, 80]);
     } else {
-      const pct = Math.round((wave.hpMul / diff.ehp - 1) * 100);
-      UI.banner(`WAVE ${n}`, ZONES[zi].name + (pct > 0 ? `  ·  MOB HP +${pct}%` : ''), 'wave', 2200);
-      Sfx.play('wave');
+      const pct = Math.round((mobHp(n) / diff.ehp - 1) * 100);
+      U.banner(`WAVE ${n}`, ZONES[zi].name + (pct > 0 ? `  ·  MOB HP +${pct}%` : ''), 'wave', 2200);
+      sfx('wave');
     }
   }
   function waveClear() {
@@ -3529,11 +3889,11 @@ const Game = (() => {
     wave.breakT = 3.4;
     const perfect = !wave.hurt;
     const bonus = addScore(200 * wave.n * (perfect ? 2 : 1));
-    UI.banner(wave.boss ? 'BOSS DEFEATED' : 'WAVE CLEAR', `+${fmt(bonus)}${perfect ? '  ·  PERFECT!' : ''}`, 'clear', 2400);
-    Sfx.play('clear');
+    U.banner(wave.boss ? 'BOSS DEFEATED' : 'WAVE CLEAR', `+${fmt(bonus)}${perfect ? '  ·  PERFECT!' : ''}`, 'clear', 2400);
+    sfx('clear');
     bg.warpT = 1.8;
     if (perfect && wave.n >= 2) spawnPickup(pick(POWER_POOL), view.w / 2, -20, 0, 60 * view.vs);
-    if (wave.boss) Sfx.music('game');
+    if (wave.boss) music('game');
   }
   function updateWave(dt) {
     if (wave.state === 'clear') {
@@ -3643,7 +4003,7 @@ const Game = (() => {
       const e = spawnEnemy('enderman', x, y);
       e.spawn = 0;
       burst(x, y, C.purple, hiQ ? 16 : 6, 200);
-      Sfx.play('teleport');
+      sfx('teleport');
       return 1;
     }
     spawnEnemy(type, x, -50 * k);
@@ -3682,10 +4042,10 @@ const Game = (() => {
     rules = tier
       ? { extraHearts: false, heartDrops: tier.heartDrops, totemHearts: tier.totemHearts }
       : { extraHearts: true, heartDrops: true, totemHearts: 3 };
-    const want = tier ? 'hard' : cp ? cp.diff : Settings.get('difficulty');
+    const want = tier ? 'hard' : cp ? cp.diff : opts.diff || Settings.get('difficulty');
     diffKey = DIFF[want] ? want : 'normal';
     diff = DIFF[diffKey];
-    const hearts = tier ? tier.hearts : clamp(Math.round(Settings.get('hearts') || 5), 1, MAX_HEARTS);
+    const hearts = tier ? tier.hearts : clamp(Math.round(opts.hearts || Settings.get('hearts') || 5), 1, MAX_HEARTS);
     // fewer hearts = bigger score bonus (1 heart x1.4, 10 hearts x0.75); Hardcore tiers add their own bonus
     heartMul = (hearts <= 5 ? 1 + (5 - hearts) * 0.1 : 1 - (hearts - 5) * 0.05) * (tier ? tier.bonus : 1);
     hud.tier = run.tier;
@@ -3708,7 +4068,15 @@ const Game = (() => {
     ets = 1;
     blastDepth = 0;
     blastKills = 0;
-    player = makePlayer(hearts);
+    heartFx.length = 0;
+    droneOwner = null;
+    // co-op: one ship per player in the room, each with its own name and skin
+    const roster = opts.roster && opts.roster.length ? opts.roster : null;
+    players = roster
+      ? roster.map((r, i) => makePlayer(hearts, { pid: r.pid, name: r.name, skin: r.skin, slot: i, count: roster.length }))
+      : [makePlayer(hearts)];
+    me = players.find((p) => p.pid === (opts.mePid || 1)) || players[0];
+    player = me;
     Object.assign(wave, { n: 0, cycle: 0, boss: false, state: 'clear', breakT: 1.3, spawned: 0, budget: 0, cleared: 0, timer: 0, hpMul: 1, spdMul: 1, fireMul: 1 });
     setZone(cp ? Math.floor((cp.wave - 1) / 5) % ZONES.length : 0);
     if (cp) resumeCheckpoint(cp);
@@ -3718,7 +4086,7 @@ const Game = (() => {
     Trophies.startRun();
     Input.reset();
     Sfx.duck(false);
-    Sfx.music('game');
+    music('game');
     lastT = performance.now();
     UI.onStart();
     if (cp) UI.toast(`CHECKPOINT LOADED · WAVE ${cp.wave}`);
@@ -3726,8 +4094,8 @@ const Game = (() => {
   }
   /** Arcade: remember the run right after a boss so it can be continued from the next wave. */
   function saveCheckpoint(nextWave, announce) {
-    if (run.mode !== 'arcade' || !player) return;
-    const p = player;
+    if (run.mode !== 'arcade' || !me || net) return; // co-op runs aren't saved
+    const p = me;
     Checkpoint.save({
       v: 1, wave: nextWave, bossLevel, score: Math.floor(score), hp: p.hp, maxHp: p.maxHp, weapon: p.weapon, power: p.power,
       totem: p.totem, nova, diff: diffKey, heartMul, runTime, stats: { ...stats }, seen: [...seen], date: Date.now(),
@@ -3735,7 +4103,7 @@ const Game = (() => {
     if (announce) UI.toast('✓ CHECKPOINT SAVED');
   }
   function resumeCheckpoint(cp) {
-    const p = player;
+    const p = me;
     // a checkpoint always puts you back at full health
     p.maxHp = p.hp = clamp(Math.round(cp.maxHp) || 5, 1, MAX_HEARTS);
     p.weapon = clamp(cp.weapon || 1, 1, 5);
@@ -3752,12 +4120,28 @@ const Game = (() => {
   }
   function pause() {
     if (state !== 'playing') return;
+    const info = { wave: wave.n, score: Math.floor(score), difficulty: diffKey, mode: run.mode, tier: run.tier, hearts: me ? me.maxHp : 0, mp: !!net };
+    if (net) {
+      // co-op can't stop the world for everyone: open the menu while the game keeps running
+      if (netMenu) return;
+      netMenu = true;
+      Input.reset();
+      UI.showPause(info);
+      return;
+    }
     state = 'paused';
     Input.reset();
     Sfx.duck(true);
-    UI.showPause({ wave: wave.n, score: Math.floor(score), difficulty: diffKey, mode: run.mode, tier: run.tier, hearts: player.maxHp });
+    UI.showPause(info);
   }
   function resume() {
+    if (net) {
+      if (!netMenu) return;
+      netMenu = false;
+      Input.reset();
+      UI.onResume();
+      return;
+    }
     if (state !== 'paused') return;
     state = 'playing';
     Input.reset();
@@ -3768,34 +4152,550 @@ const Game = (() => {
   function toMenu() {
     state = 'menu';
     clearWorld();
+    players = [];
+    me = null;
     player = null;
+    heartFx.length = 0;
     ets = 1;
     setZone(0);
     Sfx.duck(false);
-    Sfx.music('menu');
+    music('menu');
+    if (net || fixedWorld) {
+      net = null;
+      netMenu = false;
+      specPid = 0;
+      fixedWorld = null;
+      netEnts.clear();
+      netBul.clear();
+      netPk.clear();
+      resize();
+    }
   }
-  function gameOver() {
+  function runSummary() {
+    return {
+      score: Math.floor(score), wave: wave.n, kills: stats.kills, maxCombo: stats.maxCombo, time: runTime, grazes: stats.grazes,
+      bosses: stats.bosses, elites: stats.elites, difficulty: diffKey, mode: run.mode, tier: run.tier,
+    };
+  }
+  function gameOver(sum = null) {
     state = 'over';
-    const s = Math.floor(score);
+    const r = sum || runSummary();
+    const s = r.score;
     if (s >= 100000) Trophies.unlock('legend');
     const prevBest = Scores.best();
-    const entry = { score: s, wave: wave.n, kills: stats.kills, diff: diffKey, hearts: player.maxHp, mode: run.tier || 'arcade', date: Date.now() };
+    const entry = { score: s, wave: r.wave, kills: r.kills, diff: r.difficulty, hearts: me ? me.maxHp : 0, mode: net ? 'coop' : run.tier || 'arcade', date: Date.now() };
     const idx = Scores.submit(entry);
+    if (net && net.role === 'host') net.broadcast({ t: 'over', sum: r });
     UI.showGameOver({
-      score: s, best: Math.max(prevBest, s), isBest: s > prevBest && s > 0, rankIndex: idx, entry,
-      wave: wave.n, kills: stats.kills, maxCombo: stats.maxCombo,
-      time: runTime, grazes: stats.grazes, bosses: stats.bosses, elites: stats.elites, top: Scores.top(5),
-      trophies: Trophies.sessionUnlocks(), difficulty: diffKey,
-      mode: run.mode, tier: run.tier, checkpoint: run.mode === 'arcade' ? Checkpoint.get() : null,
+      ...r, best: Math.max(prevBest, s), isBest: s > prevBest && s > 0, rankIndex: idx, entry, top: Scores.top(5),
+      trophies: Trophies.sessionUnlocks(),
+      checkpoint: !net && run.mode === 'arcade' ? Checkpoint.get() : null,
+      mp: !!net, host: !!(net && net.role === 'host'),
     });
     Sfx.play('gameover');
     Sfx.music('menu');
   }
 
+  // ================================================================ multiplayer
+  // The host's game runs everything (waves, mobs, bosses, damage). Each guest steers and shoots its own
+  // ship locally, sends it to the host ~30 times a second and draws the world from the host's updates
+  // (~20 a second). Explosions, sounds and banners travel as small events. Players' shots aren't sent:
+  // every device draws its teammates' shots itself (only the host's shots do damage).
+  const SNAP_INT = 0.05;
+  const INPUT_INT = 1 / 30;
+  const EB_KINDS = Object.keys(EB);
+  const PK_KINDS = Object.keys(PK);
+  const SKIP_KEYS = new Set(['T', 'def', 'queue', 'tgt', 'tgtT', 'nid', 'wb', '__l']);
+  // numbers that glide smoothly between updates on the guests
+  const LERP_KEYS = new Set(['x', 'y', 't', 'mt', 'rot', 'rodA', 'heat', 'charge', 'fuse', 'open', 'sq', 'grow', 'spawn', 'scale', 'mouth', 'lx', 'ly', 'gy', 'enterT', 'dieT', 'hp', 'shield']);
+  let nidSeq = 0;
+  const sentCache = new WeakMap();
+  const netEnts = new Map(); // guest: id → mob / boss
+  const netBul = new Map();  // guest: id → enemy bullet
+  const netPk = new Map();   // guest: id → pickup
+
+  /**
+   * The shared world. Its shape is a compromise between everyone's screens (`ars` = width / height of
+   * each), so a phone held upright and a wide monitor can play together. The host keeps full size: the
+   * world is the host's screen with one side trimmed.
+   */
+  function netWorld(ars) {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const list = (ars || []).filter((a) => a > 0);
+    let a = list.length ? Math.exp(list.reduce((s, x) => s + Math.log(x), 0) / list.length) : w / h;
+    a = clamp(a, 0.62, 1.9);
+    if (Math.abs(a - w / h) < 0.02) return { w, h };
+    return a < w / h ? { w: Math.round(h * a), h } : { w, h: Math.round(w / a) };
+  }
+  /**
+   * o: { role, world, roster: [{ pid, name, skin }], mePid, settings: { mode, diff, hearts, tier },
+   *      send(msg) (guest → host), broadcast(msg) / sendTo(pid, msg) (host → guests) }
+   */
+  function startNet(o) {
+    net = {
+      role: o.role, send: o.send || (() => {}), broadcast: o.broadcast || (() => {}), sendTo: o.sendTo || (() => {}),
+      out: [], seq: 0, snapT: 0, inT: 0, sentE: new Set(), waveProg: -1,
+    };
+    netMenu = false;
+    specPid = 0;
+    netEnts.clear();
+    netBul.clear();
+    netPk.clear();
+    fixedWorld = { w: Math.round(o.world.w), h: Math.round(o.world.h) };
+    resize();
+    const s = o.settings || {};
+    start({ mode: s.mode, tier: s.tier, diff: s.diff, hearts: s.hearts, roster: o.roster, mePid: o.mePid });
+    UI.toast(o.role === 'host' ? `CO-OP · ${players.length} PLAYERS` : 'CONNECTED · GOOD LUCK!');
+    if (view.z < 0.55 && view.sh > view.sw) setTimeout(() => { if (net) UI.toast('TIP: TURN YOUR PHONE SIDEWAYS FOR A BIGGER VIEW'); }, 2600);
+  }
+
+  // ---- host → guests
+  function encVal(v, depth) {
+    if (typeof v === 'number') return Number.isFinite(v) ? Math.round(v * 100) / 100 : 0;
+    if (v === null || typeof v === 'string' || typeof v === 'boolean') return v;
+    if (typeof v !== 'object' || depth > 3) return undefined;
+    // never follow links to other mobs, ships or images
+    if (v.T || v.skinKey || v instanceof HTMLCanvasElement || v instanceof HTMLImageElement) return undefined;
+    if (Array.isArray(v)) {
+      if (v.length > 64) return undefined;
+      return v.map((x) => { const y = encVal(x, depth + 1); return y === undefined ? null : y; });
+    }
+    const o = {};
+    for (const key in v) {
+      if (typeof v[key] === 'function') continue;
+      const y = encVal(v[key], depth + 1);
+      if (y !== undefined) o[key] = y;
+    }
+    return o;
+  }
+  /** Only the fields that changed since the last update are sent (everything, the first time). */
+  function encEnemy(e) {
+    let c = sentCache.get(e);
+    if (!c) { c = {}; sentCache.set(e, c); }
+    let out = null;
+    for (const key in e) {
+      if (SKIP_KEYS.has(key)) continue;
+      const v = e[key];
+      if (v === undefined || typeof v === 'function') continue;
+      const y = encVal(v, 0);
+      if (y === undefined) continue;
+      const tag = y !== null && typeof y === 'object' ? JSON.stringify(y) : y;
+      if (c[key] !== tag) { c[key] = tag; (out || (out = {}))[key] = y; }
+    }
+    return out;
+  }
+  const waveProgress = () => (wave.boss || !wave.budget || wave.state !== 'active' ? -1 : r2(Math.min(1, wave.cleared / wave.budget)));
+  function buildSnap() {
+    const E = [];
+    const live = new Set();
+    for (const e of enemies) {
+      if (e.dead) continue;
+      if (!e.nid) e.nid = ++nidSeq;
+      live.add(e.nid);
+      const d = encEnemy(e);
+      if (d) E.push([e.nid, d]);
+    }
+    const D = [];
+    for (const id of net.sentE) if (!live.has(id)) D.push(id);
+    net.sentE = live;
+    const B = [];
+    for (const b of ebullets) {
+      if (b.dead) continue;
+      if (!b.nid) {
+        b.nid = ++nidSeq;
+        b.svx = b.vx;
+        b.svy = b.vy;
+        B.push([b.nid, r1(b.x), r1(b.y), r1(b.vx), r1(b.vy), EB_KINDS.indexOf(b.kind), r2(b.r), b.c.s, r1(b.g || 0), r2(b.spin || 0), b.big ? 1 : 0, r2(b.fuse || 0), r2(b.rot || 0), b.hp ? 1 : 0]);
+      } else if (b.vx !== b.svx || b.vy !== b.svy) {
+        b.svx = b.vx;
+        b.svy = b.vy;
+        B.push([b.nid, r1(b.x), r1(b.y), r1(b.vx), r1(b.vy)]);
+      } else {
+        B.push([b.nid, r1(b.x), r1(b.y)]);
+      }
+    }
+    const K = [];
+    for (const pk of pickups) {
+      if (pk.dead) continue;
+      if (!pk.nid) pk.nid = ++nidSeq;
+      K.push([pk.nid, PK_KINDS.indexOf(pk.type), r1(pk.x), r1(pk.y)]);
+    }
+    const H = [];
+    for (const h of hazards) if (!h.dead) H.push([h.kind, r1(h.x), r1(h.y), r1(h.r), r2(h.life), r2(h.max), r2(h.warn), r2(h.warnMax)]);
+    const Pl = players.map((p) => [p.pid, r1(p.x), r1(p.y), r2(p.tilt), p.hp, p.maxHp, p.alive ? 1 : 0, r2(p.invuln), p.dashT > 0 ? 1 : 0, p.weapon, p.power, p.totem ? 1 : 0, r2(p.intro), p.fireOn ? 1 : 0]);
+    const bf = {};
+    for (const key in buffs) if (buffs[key] > 0) bf[key] = r1(buffs[key]);
+    const dh = buffs.drones > 0 ? droneHost() : null;
+    const snap = {
+      t: 'S', n: ++net.seq,
+      g: [Math.floor(score), combo, r2(comboT), r1(nova), wave.n, waveProgress(), bossLevel, bg.zone, darkT > 0 && boss ? 1 : 0, r1(debuffs.fatigue), state === 'dying' ? 1 : 0, lastMult, r1(buffs.timewarp)],
+      bf, P: Pl, E, D, B, K, H,
+      N: novaFx ? [r1(novaFx.x), r1(novaFx.y), r1(novaFx.r), r1(novaFx.max), novaFx.id] : 0,
+      DR: dh ? [dh.pid, r1(drones[0].x), r1(drones[0].y), r1(drones[1].x), r1(drones[1].y)] : 0,
+      X: net.out,
+    };
+    net.out = [];
+    return snap;
+  }
+  function hostSend(raw) {
+    net.snapT -= raw;
+    if (net.snapT > 0) return;
+    net.snapT = SNAP_INT;
+    net.broadcast(buildSnap());
+  }
+  /** Messages from guests (host side) or from the host (guest side). */
+  function netRecv(pid, m) {
+    if (!net || !m) return;
+    if (net.role === 'host') {
+      const p = players.find((q) => q.pid === pid);
+      if (!p || p.left) return;
+      const num = (v, d) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+      if (m.t === 'in') {
+        p.in = {
+          x: clamp(num(m.x, p.x), -50, view.w + 50), y: clamp(num(m.y, p.y), -view.h, view.h * 2),
+          vx: clamp(num(m.vx, 0), -6000, 6000), vy: clamp(num(m.vy, 0), -6000, 6000),
+          tilt: clamp(num(m.tl, 0), -1, 1), intro: clamp(num(m.i, 0), 0, 1),
+        };
+        p.fireOn = !!m.f && p.alive;
+      } else if (m.t === 'dash') {
+        if (p.alive && p.dashT <= 0) { p.dashT = DASH_TIME; p.invuln = Math.max(p.invuln, DASH_TIME + 0.12); stats.dashes += 1; }
+      } else if (m.t === 'nova') {
+        if (state === 'playing') useNova(p);
+      }
+      // when the host's tab is in the background its frames stop — keep the team's game going
+      if (document.hidden) bgTick();
+      return;
+    }
+    if (m.t === 'S') applySnap(m);
+    else if (m.t === 'E') { for (const ev of Array.isArray(m.e) ? m.e : []) runNetEvent(ev); }
+    else if (m.t === 'over') { if (state !== 'over' && state !== 'menu') gameOver(m.sum || runSummary()); }
+  }
+  function bgTick() {
+    const t = performance.now();
+    const dtr = (t - lastT) / 1000;
+    if (dtr < 0.03) return;
+    lastT = t;
+    const dt = Math.min(dtr, 0.05);
+    time += dt;
+    update(dt, dt);
+  }
+
+  // ---- guests: apply the host's updates
+  function applySnap(s) {
+    if (!net || net.role !== 'guest' || state === 'menu' || state === 'over') return;
+    const now = performance.now() / 1000;
+    const g = s.g || [];
+    score = g[0] || 0;
+    combo = g[1] || 0;
+    comboT = g[2] || 0;
+    nova = g[3] || 0;
+    wave.n = g[4] || 0;
+    net.waveProg = g[5] === undefined ? -1 : g[5];
+    bossLevel = g[6] || 0;
+    if (g[7] !== undefined && g[7] !== bg.zone) setZone(g[7]);
+    darkT = g[8] ? 1 : 0;
+    debuffs.fatigue = g[9] || 0;
+    lastMult = g[11] || 1;
+    for (const key in buffs) buffs[key] = (s.bf && s.bf[key]) || 0;
+    for (const r of s.P || []) {
+      const p = players.find((q) => q.pid === r[0]);
+      if (!p) continue;
+      p.hp = r[4];
+      p.maxHp = r[5];
+      p.weapon = r[9];
+      p.power = r[10];
+      p.totem = !!r[11];
+      if (p === me) {
+        // our position is our own; hearts, weapon and invulnerability come from the host
+        p.alive = !!r[6];
+        p.invuln = Math.max(p.invuln, r[7]);
+      } else {
+        const was = p.alive;
+        p.alive = !!r[6];
+        p.nx = r[1];
+        p.ny = r[2];
+        p.tilt = r[3];
+        p.invuln = r[7];
+        p.dashT = r[8] ? Math.max(p.dashT, 0.05) : 0;
+        p.intro = r[12];
+        p.fireOn = !!r[13];
+        if (!was && p.alive) { p.x = p.nx; p.y = p.ny; }
+      }
+    }
+    for (const [nid, f] of s.E || []) upsertEnemy(nid, f, now);
+    for (const ev of s.X || []) runNetEvent(ev);
+    for (const nid of s.D || []) {
+      const e = netEnts.get(nid);
+      if (e) { e.dead = true; netEnts.delete(nid); }
+    }
+    boss = null;
+    for (const e of enemies) if (!e.dead && e.T && e.T.boss) boss = e;
+    // enemy bullets keep flying on their own between updates
+    const seenB = new Set();
+    for (const r of s.B || []) {
+      seenB.add(r[0]);
+      let b = netBul.get(r[0]);
+      if (!b) {
+        if (r.length < 14) continue;
+        b = {
+          nid: r[0], x: r[1], y: r[2], vx: r[3], vy: r[4], kind: EB_KINDS[r[5]] || 'orb', r: r[6], c: colS(r[7]), g: r[8], spin: r[9],
+          big: !!r[10], fuse: r[11], rot: r[12], hp: r[13] ? 1 : 0, t: 0, life: 99, home: 0, grazed: false, dead: false,
+        };
+        ebullets.push(b);
+        netBul.set(r[0], b);
+      } else {
+        // the update is a moment old: nudge it ahead by the time it took to arrive
+        const lead = 0.04 * ets;
+        if (r.length >= 5) { b.vx = r[3]; b.vy = r[4]; }
+        b.x = r[1] + b.vx * lead;
+        b.y = r[2] + b.vy * lead;
+      }
+    }
+    for (const [id, b] of netBul) if (!seenB.has(id)) { b.dead = true; netBul.delete(id); }
+    const seenK = new Set();
+    for (const r of s.K || []) {
+      seenK.add(r[0]);
+      let pk = netPk.get(r[0]);
+      if (!pk) {
+        pk = { nid: r[0], type: PK_KINDS[r[1]] || 'gem', x: r[2], y: r[3], tx: r[2], ty: r[3], t: 0, bob: 0, ph: rand(TAU), r: 18 * view.k, vx: 0, vy: 0, dead: false };
+        pickups.push(pk);
+        netPk.set(r[0], pk);
+      } else {
+        pk.tx = r[2];
+        pk.ty = r[3];
+      }
+    }
+    for (const [id, pk] of netPk) if (!seenK.has(id)) { pk.dead = true; netPk.delete(id); }
+    hazards.length = 0;
+    for (const h of s.H || []) hazards.push({ kind: h[0], x: h[1], y: h[2], r: h[3], life: h[4], max: h[5], warn: h[6], warnMax: h[7], t: time, dead: false });
+    if (s.N) {
+      if (!novaFx || novaFx.id !== s.N[4]) novaFx = { x: s.N[0], y: s.N[1], r: s.N[2], max: s.N[3], id: s.N[4], power: 1 };
+    }
+    if (s.DR) {
+      droneOwner = players.find((p) => p.pid === s.DR[0]) || null;
+      drones[0].x = s.DR[1]; drones[0].y = s.DR[2]; drones[1].x = s.DR[3]; drones[1].y = s.DR[4];
+    }
+  }
+  function upsertEnemy(nid, f, now) {
+    let e = netEnts.get(nid);
+    if (!e) {
+      e = { nid, dead: false, queue: [], beams: [], __l: {} };
+      Object.assign(e, f);
+      const def = f.kind && BK.ALL[f.kind];
+      if (def) {
+        if (!bossTypes[f.kind]) bossTypes[f.kind] = { img: def.img, w: def.w, h: def.h, hp: def.hp, score: def.score, pal: def.pal, glow: def.glow, boss: true, name: def.name };
+        e.def = def;
+        e.T = bossTypes[f.kind];
+      } else {
+        e.T = TYPES[f.type] || TYPES.zombie;
+      }
+      enemies.push(e);
+      netEnts.set(nid, e);
+      return;
+    }
+    for (const key in f) {
+      const v = f[key];
+      const cur = e[key];
+      if (LERP_KEYS.has(key) && typeof v === 'number' && typeof cur === 'number' && !(key === 'rot' && Math.abs(v - cur) > 3)) {
+        e.__l[key] = [cur, v, now];
+      } else {
+        e[key] = v;
+        delete e.__l[key];
+      }
+    }
+  }
+  function netLerp() {
+    const now = performance.now() / 1000;
+    for (const e of enemies) {
+      const L = e.__l;
+      if (!L) continue;
+      for (const key in L) {
+        const q = L[key];
+        const a = Math.min(1, (now - q[2]) / SNAP_INT);
+        e[key] = q[0] + (q[1] - q[0]) * a;
+        if (a >= 1) delete L[key];
+      }
+    }
+  }
+  function runNetEvent(ev) {
+    if (!Array.isArray(ev)) return;
+    const a = ev;
+    switch (a[0]) {
+      case 'x': explodeFx(a[1], a[2], (a[3] || []).map(colS), a[4], colS(a[5])); break;
+      case 'b': burst(a[1], a[2], colS(a[3]), a[4], a[5]); break;
+      case 'p': popup(a[1], a[2], String(a[3]), a[4], a[5], a[6]); break;
+      case 'k': trauma = Math.min(1, trauma + (+a[1] || 0)); break;
+      case 'w': slowT = Math.max(slowT, +a[1] || 0); slowScale = +a[2] || 1; break;
+      case 'r': P(a[1], a[2], 0, 0, a[3], a[4], colS(a[5]), RING); break;
+      case 's': Sfx.play(a[1], a[2] === null ? undefined : a[2]); break;
+      case 'm': Sfx.music(a[1]); break;
+      case 'B': UI.banner(a[1], a[2], a[3], a[4]); break;
+      case 'T': UI.toast(String(a[1])); break;
+      case 'F': UI.flash(a[1]); break;
+      case 'BB': UI.bossBar(!!a[1], a[2], a[3]); break;
+      case 'L': UI.letterbox(!!a[1]); break;
+      case 'l': bolt(a[1], a[2], a[3], a[4]); break;
+      case 'h': { const t = netEnts.get(a[1]); if (t) shatter(t); break; }
+      case 'hf': addHeartFx(a[1], a[2]); break;
+      case 'pd': onDown(a[1]); break;
+      case 'pr': onBack(a[1]); break;
+      case 'pl': dropPlayer(a[1]); break;
+      // just for this player
+      case 'hurt': hitFeedback(); break;
+      case 'kn': if (me && me.alive) { me.knockT = 0.3; me.kvx = +a[1] || 0; me.kvy = +a[2] || 0; Input.vibrate(40); } break;
+      default: break;
+    }
+  }
+  function sendInput() {
+    const p = me;
+    net.send({ t: 'in', x: r1(p.x), y: r1(p.y), vx: Math.round(p.vx), vy: Math.round(p.vy), tl: r2(p.tilt), f: p.alive && p.fireOn ? 1 : 0, i: r2(p.intro) });
+  }
+  function guestUpdate(dt, raw, edt, playing) {
+    if (playing) {
+      runTime += dt;
+      if (Input.consume('dash')) { const f = Input.takeFlick(); tryDash(f ? f.x : null, f ? f.y : null); }
+      if (Input.consume('nova')) useNova(me);
+      for (const p of players) { player = p; updateShip(p, dt); }
+      player = me;
+      if (buffs.timewarp > 0) { tickT -= dt; if (tickT <= 0) { tickT = 0.5; Sfx.play('tick'); } }
+      if (me && me.alive && me.hp === 1) { hbT -= dt; if (hbT <= 0) { hbT = 0.95; Sfx.play('heartbeat'); } }
+      net.inT -= raw;
+      if (net.inT <= 0 && me) { net.inT = INPUT_INT; sendInput(); }
+      for (const key in buffs) if (buffs[key] > 0) buffs[key] = Math.max(0, buffs[key] - dt);
+    }
+    netLerp();
+    const k = view.k;
+    for (const e of enemies) if (e.flash > 0) e.flash -= dt;
+    for (const b of ebullets) {
+      b.t += edt;
+      if (b.g) b.vy += b.g * edt;
+      b.x += b.vx * edt;
+      b.y += b.vy * edt;
+      if (b.spin) b.rot += b.spin * edt;
+    }
+    for (const pk of pickups) {
+      pk.t += dt;
+      pk.bob = Math.sin(pk.t * 4 + pk.ph) * 4 * k;
+      pk.x = damp(pk.x, pk.tx, 16, dt);
+      pk.y = damp(pk.y, pk.ty, 16, dt);
+    }
+    for (const h of hazards) { if (h.warn > 0) h.warn -= edt; else h.life = Math.max(0.01, h.life - edt); }
+    updateBullets(dt);
+    updateNova(dt);
+    updateGhosts(dt);
+    updateBolts(dt);
+    updateParticles(dt);
+    updatePopups(dt);
+    updateHeartFx(dt);
+    compact(bullets);
+    compact(enemies);
+    compact(ebullets);
+    compact(pickups);
+  }
+
+  // ---- going down, coming back, leaving
+  const shipName = (p) => (p.name || `P${p.pid}`).toUpperCase();
+  function teammateDown(p) {
+    explode(p.x, p.y, PAL.player, 2.2, C.cyan);
+    P(p.x, p.y, 0, 0, 0.9, 260 * view.k, C.cyan, RING);
+    sfx('bigExplode');
+    popup(p.x, p.y - p.h, `${shipName(p)} IS DOWN!`, '#ff4d5e', 12, 1.8);
+    fwd('pd', p.pid);
+    onDown(p.pid);
+    if (!players.some((q) => q.alive)) {
+      // the whole team is down
+      state = 'dying';
+      dieT = 0;
+      music(null);
+      slowmo(1.4, 0.25);
+      U.flash('white');
+    }
+  }
+  /** Runs on every device when a ship goes down. */
+  function onDown(pid) {
+    const p = players.find((q) => q.pid === pid);
+    if (p) { p.alive = false; p.fireOn = false; }
+    if (me && pid === me.pid) {
+      Input.vibrate([120, 60, 240]);
+      UI.flash('white');
+      Input.reset();
+      const others = players.some((q) => q !== me && q.alive);
+      specPid = others ? (players.find((q) => q !== me && q.alive) || {}).pid || 0 : 0;
+      if (others) UI.netDown({ respawn: run.mode === 'arcade' });
+    } else if (specPid === pid) {
+      spectate(1);
+    }
+  }
+  /** Arcade co-op: fallen players warp back in at the start of the next wave. */
+  function respawnDown() {
+    for (const p of players) {
+      if (p.alive || p.left) continue;
+      p.alive = true;
+      p.hp = p.maxHp;
+      p.invuln = 3;
+      p.intro = 1;
+      p.dashT = 0;
+      p.knockT = 0;
+      p.x = p.homeX;
+      p.y = view.h + p.h;
+      if (p !== me) { p.in = { x: p.x, y: p.y, vx: 0, vy: 0, tilt: 0, intro: 1 }; p.nx = p.x; p.ny = p.y; }
+      popup(p.homeX, view.h * 0.7, `${shipName(p)} IS BACK!`, '#56f08b', 12, 1.8);
+      fwd('pr', p.pid);
+      onBack(p.pid);
+    }
+  }
+  function onBack(pid) {
+    const p = players.find((q) => q.pid === pid);
+    if (!p) return;
+    p.alive = true;
+    if (p === me) {
+      p.intro = 1;
+      p.x = p.homeX;
+      p.y = view.h + p.h;
+      p.invuln = 3;
+      p.vx = p.vy = 0;
+      Input.reset();
+      specPid = 0;
+      UI.netBack();
+    }
+  }
+  /** A player left the room (or lost connection). */
+  function dropPlayer(pid) {
+    const i = players.findIndex((q) => q.pid === pid);
+    if (i < 0) return;
+    const p = players[i];
+    p.left = true;
+    p.alive = false;
+    players.splice(i, 1);
+    if (specPid === pid) spectate(1);
+    if (net && net.role === 'host') {
+      fwd('pl', pid);
+      if ((state === 'playing') && !players.some((q) => q.alive)) {
+        state = 'dying';
+        dieT = 0;
+        music(null);
+      }
+    }
+  }
+  /** The ship the camera cares about: yours, or the teammate you're watching after going down. */
+  function viewTarget() {
+    if (me && me.alive) return me;
+    return players.find((p) => p.pid === specPid && p.alive) || me;
+  }
+  function spectate(dir) {
+    const alive = players.filter((p) => p.alive && p !== me);
+    if (!alive.length) { specPid = 0; return ''; }
+    let i = alive.findIndex((p) => p.pid === specPid);
+    i = i < 0 ? 0 : (i + dir + alive.length) % alive.length;
+    specPid = alive[i].pid;
+    return shipName(alive[i]);
+  }
+
   // ================================================================ loop
   function handleActions() {
     if (Input.consume('pause')) {
-      if (state === 'playing') pause();
+      if (state === 'playing') { if (net && netMenu) resume(); else pause(); }
       else if (state === 'paused' && UI.current === 'pause') resume();
     }
     if (Input.consume('mute')) {
@@ -3821,21 +4721,23 @@ const Game = (() => {
     // Time Warp slows every mob, projectile, hazard and spawn timer — but not you
     ets = damp(ets, buffs.timewarp > 0 && playing ? 0.4 : 1, 6, dt);
     const edt = dt * ets;
-    darkT = Math.max(0, darkT - edt);
+    if (!(net && net.role === 'guest')) darkT = Math.max(0, darkT - edt);
     dark = damp(dark, darkT > 0 && boss ? 1 : 0, 3, dt);
+    if (net && net.role === 'guest') { guestUpdate(dt, raw, edt, playing); return; }
     if (playing) {
       runTime += dt;
       for (const key in buffs) if (buffs[key] > 0) buffs[key] = Math.max(0, buffs[key] - dt);
       if (debuffs.fatigue > 0) debuffs.fatigue = Math.max(0, debuffs.fatigue - dt);
       if (comboT > 0) { comboT -= dt; if (comboT <= 0) resetCombo(); }
       if (Input.consume('dash')) { const f = Input.takeFlick(); tryDash(f ? f.x : null, f ? f.y : null); }
-      if (Input.consume('nova')) useNova();
-      updatePlayer(dt);
+      if (Input.consume('nova')) useNova(me);
+      for (const p of players) { player = p; updateShip(p, dt); }
+      player = me;
       updateWave(edt);
       updateStorm(dt);
       updateDrones(dt);
       if (buffs.timewarp > 0) { tickT -= dt; if (tickT <= 0) { tickT = 0.5; Sfx.play('tick'); } }
-      if (player.alive && player.hp === 1) { hbT -= dt; if (hbT <= 0) { hbT = 0.95; Sfx.play('heartbeat'); } }
+      if (me && me.alive && me.hp === 1) { hbT -= dt; if (hbT <= 0) { hbT = 0.95; Sfx.play('heartbeat'); } }
     }
     updateBullets(dt);
     updateEnemies(edt);
@@ -3847,6 +4749,7 @@ const Game = (() => {
     updateBolts(dt);
     updateParticles(dt);
     updatePopups(dt);
+    updateHeartFx(dt);
     compact(bullets);
     for (const e of enemies) if (e.dead && e.wb) { e.wb = false; wave.cleared += 1; }
     compact(enemies);
@@ -3856,6 +4759,7 @@ const Game = (() => {
       dieT += raw;
       if (dieT > 2.2) gameOver();
     }
+    if (net && net.role === 'host' && (state === 'playing' || state === 'dying')) hostSend(raw);
   }
   function render() {
     if (trauma > 0 && Settings.get('shake')) {
@@ -3879,32 +4783,55 @@ const Game = (() => {
     drawIncoming();
     drawDarkness();
     drawBullets();
-    drawPlayer();
+    drawPlayers();
     drawEBullets();
     drawBolts();
     drawParticles();
     drawNova();
     drawPopups();
+    drawFrame();
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
+  }
+  /** Co-op on a differently shaped screen: dim the space outside the shared world and outline it. */
+  function drawFrame() {
+    if (!fixedWorld || (view.ox < 1 && view.oy < 1)) return;
+    const d = view.dpr;
+    const x = view.ox;
+    const y = view.oy;
+    const w = view.w * view.z;
+    const h = view.h * view.z;
+    ctx.setTransform(d, 0, 0, d, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = 'rgba(2,3,10,.82)';
+    if (x >= 1) { ctx.fillRect(0, 0, x, view.sh); ctx.fillRect(x + w, 0, view.sw - x - w, view.sh); }
+    if (y >= 1) { ctx.fillRect(x, 0, w, y); ctx.fillRect(x, y + h, w, view.sh - y - h); }
+    ctx.strokeStyle = 'rgba(128,180,255,.28)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x - 0.75, y - 0.75, w + 1.5, h + 1.5);
   }
   function fillHud() {
     hud.score = score;
     hud.combo = combo;
     hud.mult = comboMult();
     hud.comboT = comboT / COMBO_TIME;
-    if (player) {
-      hud.hp = player.hp;
-      hud.maxHp = player.maxHp;
-      hud.weapon = player.weapon;
-      hud.power = player.power;
-      hud.dash = player.dashCd > 0 ? 1 - player.dashCd / DASH_CD : 1;
-      hud.alive = player.alive;
-      hud.totem = player.totem;
+    // after going down in co-op the hearts show the teammate you're watching
+    const vp = viewTarget();
+    if (vp) {
+      hud.hp = vp.hp;
+      hud.maxHp = vp.maxHp;
+      hud.weapon = vp.weapon;
+      hud.power = vp.power;
+      hud.dash = me && me.dashCd > 0 ? 1 - me.dashCd / DASH_CD : 1;
+      hud.alive = vp.alive;
+      hud.totem = vp.totem;
     }
+    hud.mp = !!net;
+    hud.spectating = net && me && !me.alive && vp && vp !== me ? shipName(vp) : '';
     hud.nova = nova;
     hud.wave = wave.n;
-    hud.waveProg = wave.boss || !wave.budget || wave.state !== 'active' ? -1 : Math.min(1, wave.cleared / wave.budget);
+    hud.waveProg = net && net.role === 'guest' ? net.waveProg : waveProgress();
     hud.boss = boss ? Math.max(0, boss.hp / boss.maxHp) : -1;
     hud.bossPhase = boss ? boss.phase : 1;
     hud.bossArmor = !!(boss && boss.armor);
@@ -3957,6 +4884,14 @@ const Game = (() => {
     isDark: () => darkT > 0,
     setFatigue: (t) => { debuffs.fatigue = Math.max(debuffs.fatigue, t); },
     glow, blit, sprite, at, world, drawTentacles,
+    // relayed to every player in co-op
+    sfx, banner: U.banner, flash: U.flash,
+    /** Run fn for every ship still flying (with `player` pointing at it), e.g. for lasers that hit anyone. */
+    eachPlayer(fn) {
+      const keep = player;
+      for (const p of players) { if (!p.alive) continue; player = p; fn(p); }
+      player = keep;
+    },
   };
 
   // ================================================================ public API
@@ -3973,9 +4908,12 @@ const Game = (() => {
         if (key === 'skin') applySkin();
       });
       Input.init(canvas, {
-        player: () => player || { x: view.w / 2, y: view.h * 0.8 },
+        player: () => me || { x: view.w / 2, y: view.h * 0.8 },
         bounds,
-        playing: () => state === 'playing',
+        playing: () => state === 'playing' && !netMenu,
+        // screen pixels → world units (they differ when a co-op world is scaled to fit)
+        toWorld: (x, y) => ({ x: (x - view.ox) / view.z, y: (y - view.oy) / view.z }),
+        zoom: () => view.z,
       });
       document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
       window.addEventListener('blur', () => pause());
@@ -3988,8 +4926,18 @@ const Game = (() => {
     resume,
     toMenu,
     dash() { if (state === 'playing') tryDash(null, null); },
-    nova() { if (state === 'playing') useNova(); },
+    nova() { if (state === 'playing') useNova(me); },
     get state() { return state; },
+    // ---- co-op (see net.js and the lobby in ui.js)
+    startNet,
+    netRecv,
+    netWorld,
+    /** A player left the room mid-run. */
+    netLeft(pid) { dropPlayer(pid); },
+    /** Watch the next/previous teammate after going down; returns their name. */
+    spectate(dir = 1) { return spectate(dir); },
+    get net() { return net ? { role: net.role } : null; },
+    get me() { return me ? { pid: me.pid, alive: me.alive } : null; },
     /** The current (or last) run: { mode: 'arcade' | 'hardcore', tier }. */
     get run() { return { mode: run.mode, tier: run.tier }; },
     BUFF_MAX,
@@ -4006,8 +4954,8 @@ const Game = (() => {
         boss = null;
         darkT = 0;
         hazards.length = 0;
-        UI.bossBar(false);
-        UI.letterbox(false);
+        U.bossBar(false);
+        U.letterbox(false);
         wave.n = n - 1;
         wave.state = 'clear';
         wave.breakT = 0.1;
@@ -4023,6 +4971,11 @@ const Game = (() => {
       breakShield() { if (boss && boss.shield > 0) breakShield(boss); },
       attack(name) { if (boss && boss.mode === 'fight') { boss.atk = 99; boss.def.attack(boss, name); } },
       die() { if (player && player.alive) { godMode = false; buffs.shield = 0; player.totem = false; player.hp = 1; player.invuln = 0; player.dashT = 0; hurtPlayer(); } },
+      // co-op testing (host): every ship, and hurting / downing one of them
+      players() { return players.map((p) => ({ pid: p.pid, name: p.name, skin: p.skin, hp: p.hp, maxHp: p.maxHp, alive: p.alive, x: Math.round(p.x), y: Math.round(p.y), intro: +p.intro.toFixed(2), me: p === me })); },
+      hurtPid(pid) { const p = players.find((q) => q.pid === pid); if (p) { buffs.shield = 0; p.invuln = 0; p.dashT = 0; p.intro = 0; hurtPlayer(1, p); } },
+      killPid(pid) { const p = players.find((q) => q.pid === pid); if (p && p.alive) { buffs.shield = 0; p.totem = false; p.hp = 1; p.invuln = 0; p.dashT = 0; p.intro = 0; hurtPlayer(1, p); } },
+      world() { return { w: view.w, h: view.h, z: +view.z.toFixed(3), ox: Math.round(view.ox), oy: Math.round(view.oy), fixed: !!fixedWorld }; },
       player() { return player && { x: player.x, y: player.y, hp: player.hp, maxHp: player.maxHp, weapon: player.weapon, power: player.power, alive: player.alive, totem: player.totem }; },
       info() {
         return {

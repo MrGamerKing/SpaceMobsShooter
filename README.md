@@ -1,6 +1,6 @@
 # Space Mobs Shooter
 
-An arcade space shooter where you pilot a Phantom through endless waves of Minecraft-style mobs and face a new boss every fifth wave. It runs in any modern browser on PC or phone and supports gamepads. It can also run as a desktop app.
+An arcade space shooter where you pilot a Phantom through endless waves of Minecraft-style mobs and face a new boss every fifth wave. Play alone or in online co-op with up to 3 friends. It runs in any modern browser on PC or phone and supports gamepads. It can also run as a desktop app.
 
 Made by **MrGamerKing** · [YouTube](https://www.youtube.com/@MrGamerKingOfficial)
 
@@ -22,7 +22,7 @@ To skip the intro while testing, open `index.html#nointro`.
 
 ## Game modes
 
-Press **PLAY** and pick a mode:
+Press **SINGLE PLAYER** and pick a mode:
 
 - **Arcade:** choose the difficulty (Easy, Normal or Hard) and your starting hearts (1–10). After every boss your run is saved at a **checkpoint**. From the Arcade screen (or the **Continue** button on the main menu, or the game-over screen) you can continue from the last checkpoint with full hearts, or start a **New Game**. A new game asks you to confirm first, because it erases the checkpoint.
 - **Hardcore:** there are no saves: if you die, you start again from wave 1. The difficulty is always **Hard**, and you can never gain extra hearts beyond the ones you start with. Choose one of three challenges:
@@ -34,6 +34,36 @@ Press **PLAY** and pick a mode:
 | Brutal | 1 | Hearts never drop, only Totems of Undying (which drop a little more often). A totem revives you with 1 heart. | ×2 |
 
 Beating a boss in each Hardcore challenge unlocks a trophy.
+
+## Multiplayer (online co-op)
+
+Up to 4 players can fight the waves and bosses together over the internet.
+
+1. One player presses **MULTIPLAYER → CREATE ROOM** and picks a room name, a username and a password.
+2. The others press **MULTIPLAYER → JOIN ROOM** and enter the same room name and password with their own username.
+3. In the lobby everyone sees the player list and each player's skin. The host sets the mode (**Arcade** with difficulty and hearts, or **Hardcore** with Extreme / Insane / Brutal) and the maximum number of players, can remove players, and presses **START GAME**.
+
+In the game every ship keeps its own skin and a small name tag with its hearts. When a player loses a heart, a heart breaks above their ship; when they heal, a heart pops in.
+
+- The team shares the score, combo, Nova meter and power-ups (overdrive, shield, magnet and so on). Weapon stars, hearts and totems go to whoever grabs them.
+- Mobs and bosses pick targets among the players, and their health grows with the size of the team.
+- A player who goes down can **spectate** their teammates (switching between them) or **leave**. In Arcade they warp back in at the start of the next wave. In Hardcore there are no respawns.
+- The run ends when the whole team is down. Everyone can then go **back to the lobby** and play again.
+- The pause menu doesn't stop a co-op game; it only opens the menu for you.
+- Co-op runs aren't saved as checkpoints. They go on the leaderboard with a **CO-OP** tag.
+
+**How it works:** there is no game server. The room creator (the host) runs the game on their own device, and the other players connect straight to them with WebRTC, using [PeerJS](https://peerjs.com) (MIT license, included as `peerjs.min.js`). PeerJS's free public service only introduces the players to each other, and relays the connection when a direct one isn't possible. So the host should keep the game open and in front while playing. Everyone needs an internet connection.
+
+The shared world is shaped to suit everyone's screens. On a very different screen (for example a phone held upright while the host uses a PC) the world is scaled to fit, with dark bars around it. Turning the phone sideways gives a bigger view.
+
+**Safety on GitHub:**
+
+- The repository contains no passwords, keys or server secrets, so it's safe to publish.
+- Room passwords are typed while playing and are never stored or sent. A room's address is a SHA-256 fingerprint of its name and password, so nobody can find a room without the password. Joining also has to prove the password with a second fingerprint.
+- Usernames and room names are cleaned (letters, numbers and a few symbols, 12 / 20 characters max) and always shown as plain text.
+- The host checks every message from the other players and ignores floods or impossible values.
+- As in any browser game, a player could modify their own copy of the game. This doesn't matter for playing with friends.
+- Pick a password that isn't easy to guess, and share it only with your friends.
 
 ## Controls
 
@@ -121,9 +151,16 @@ skins.js       the list of player skins
 bosses.js      all 10 bosses and their attacks
 game.js        game engine: rendering, mobs, waves, power-ups and particles
 intro.js       startup intro (VarexGames, Made in Pakistan, title screen) and the game logo
-ui.js          menus, HUD updates and startup
+net.js         online co-op: rooms, passwords (SHA-256), lobby and messages
+peerjs.min.js  PeerJS 1.5.5 (MIT license), the WebRTC library net.js uses
+ui.js          menus, HUD updates, lobby and startup
 *.png          sprites and images
 main.js        Electron entry point for the desktop app
 ```
 
-For testing, open the browser console: `Game.debug.boss(4)` jumps straight to the Ender Dragon, and `Game.debug.god()` makes you invincible. `Game.debug.autopilot('dodge')` lets a simple bot fly and dodge; in god mode, `Game.debug.info().botHits` counts the hearts you would have lost.
+For testing, open the browser console: `Game.debug.boss(4)` jumps straight to the Ender Dragon, and `Game.debug.god()` makes you invincible. `Game.debug.autopilot('dodge')` lets a simple bot fly and dodge; in god mode, `Game.debug.info().botHits` counts the hearts you would have lost. In a co-op game, `Game.debug.players()` lists every ship and `Game.debug.hurtPid(2)` hurts player 2 (host only).
+
+## Credits
+
+- Game by **MrGamerKing**, published by **VarexGames**.
+- [PeerJS](https://github.com/peers/peerjs) (MIT License, Copyright (c) 2015 Michelle Bu and Eric Zhang) for online co-op.

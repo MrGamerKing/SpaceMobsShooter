@@ -50,8 +50,14 @@ const Input = (() => {
   }
   const isHeld = (act) => { for (const a of held.values()) if (a === act) return true; return false; };
 
+  // screen → world (the co-op world can be scaled to fit a differently shaped screen)
+  const toWorld = (x, y) => (hooks && hooks.toWorld ? hooks.toWorld(x, y) : { x, y });
+  const zoom = () => (hooks && hooks.zoom ? hooks.zoom() || 1 : 1);
+  const typing = (el) => !!el && (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && el.type !== 'range' && el.type !== 'checkbox'));
+
   // ------------------------------------------------------------ keyboard
   function onKeyDown(e) {
+    if (typing(e.target)) return; // typing a name or password
     const act = KEYMAP[e.code];
     if (!act) return;
     if (hooks.playing() && GAME_KEYS.has(act)) e.preventDefault();
@@ -75,7 +81,7 @@ const Input = (() => {
       if (e.button === 0) {
         mouseSteer = true;
         S.fire = true;
-        S.target = { x: e.clientX, y: e.clientY };
+        S.target = toWorld(e.clientX, e.clientY);
       }
       return;
     }
@@ -105,13 +111,13 @@ const Input = (() => {
 
   function onPointerMove(e) {
     if (mouseSteer && e.pointerType === 'mouse') {
-      S.target = { x: e.clientX, y: e.clientY };
+      S.target = toWorld(e.clientX, e.clientY);
       return;
     }
     if (e.pointerId === drag.id && S.target) {
       drag.x = e.clientX;
       drag.y = e.clientY;
-      const s = Settings.get('sensitivity');
+      const s = Settings.get('sensitivity') / zoom();
       const b = hooks.bounds();
       const tx = drag.px + (e.clientX - drag.sx) * s;
       const ty = drag.py + (e.clientY - drag.sy) * s;

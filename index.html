@@ -72,6 +72,14 @@
     <div id="fps" class="fps"></div>
   </div>
 
+  <!-- co-op: watching a teammate after going down -->
+  <div id="specBar" class="spec-bar">
+    <button class="icon-btn" data-act="specPrev" aria-label="Previous teammate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+    <span class="spec-label">SPECTATING<b id="specName">-</b><small id="specHint"></small></span>
+    <button class="icon-btn" data-act="specNext" aria-label="Next teammate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>
+    <button class="btn btn-sm btn-ghost" data-act="leaveRoom">LEAVE</button>
+  </div>
+
   <div id="joy" class="joy"><i id="joyKnob"></i></div>
   <div id="touchDot" class="touch-dot"></div>
   <div id="hint" class="hint"></div>
@@ -98,18 +106,21 @@
       </div>
       <nav class="menu-buttons">
         <button class="btn btn-primary" data-act="play" data-autofocus style="--i:0">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l12-7.5z"/></svg>PLAY
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l12-7.5z"/></svg>SINGLE PLAYER
         </button>
-        <div id="menuModeLine" class="menu-mode-line" style="--i:1"></div>
-        <div class="menu-row" style="--i:2">
+        <button class="btn btn-mp" data-act="mp" style="--i:1">
+          <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="8" cy="8" r="3.4"/><circle cx="16.5" cy="9" r="2.8"/><path d="M1.5 20c.4-4 3-6.3 6.5-6.3s6.1 2.3 6.5 6.3zM13.7 14.2c.8-.4 1.8-.6 2.8-.6 3 0 5.2 2 5.6 6.4h-5.6c-.2-2.3-1.2-4.3-2.8-5.8z"/></svg>MULTIPLAYER
+        </button>
+        <div id="menuModeLine" class="menu-mode-line" style="--i:2"></div>
+        <div class="menu-row" style="--i:3">
           <button class="btn btn-skins" data-act="skins"><img id="menuSkin" src="player.png" alt="">SKINS</button>
           <button class="btn" data-act="how">HOW TO PLAY</button>
         </div>
-        <div class="menu-row" style="--i:3">
+        <div class="menu-row" style="--i:4">
           <button class="btn" data-act="trophies">TROPHIES</button>
           <button class="btn" data-act="settings">SETTINGS</button>
         </div>
-        <button id="btnQuit" class="btn btn-ghost hidden" data-act="quit" style="--i:4">QUIT</button>
+        <button id="btnQuit" class="btn btn-ghost hidden" data-act="quit" style="--i:5">QUIT</button>
       </nav>
       <div class="menu-stats">
         <span class="stat-pill">BEST<b id="menuBest">0</b></span>
@@ -117,7 +128,7 @@
         <span class="stat-pill">TROPHIES<b id="menuTrophies">0</b></span>
       </div>
     </div>
-    <div class="version">v3.1 · 10 BOSSES · 11 SKINS</div>
+    <div class="version">v3.2 · ONLINE CO-OP · 10 BOSSES</div>
     <div class="menu-hint">PRESS ENTER TO PLAY</div>
   </section>
 
@@ -206,6 +217,7 @@
             <li><b>NOVA</b> — a screen-wide shockwave. It only recharges from mobs YOU kill and from grazing bullets — kills made by the Nova itself don't count.</li>
             <li><b>GRAZE</b> — skim bullets without touching them for bonus points and Nova charge.</li>
             <li><b>PERFECT</b> — clear a wave without taking damage for double bonus and a free power-up.</li>
+            <li><b>CO-OP</b> — in Multiplayer the team shares the score, combo, Nova and power-ups. Stars, hearts and totems go to whoever grabs them.</li>
           </ul>
         </div>
       </div>
@@ -294,6 +306,126 @@
           <li>You can <b>never gain extra hearts</b> beyond your starting hearts</li>
         </ul>
         <div id="tierList" class="tier-list"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== MULTIPLAYER ============================== -->
+  <section id="scrMp" class="screen overlay">
+    <div class="panel panel-wide">
+      <div class="panel-head">
+        <button class="icon-btn" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <h2>MULTIPLAYER</h2>
+      </div>
+      <div class="panel-body">
+        <p class="tab-intro">Team up with up to <b>3 friends</b> in online co-op. One player creates a room, and the others join it with the same <b>room name</b> and <b>password</b>.</p>
+        <div class="mode-grid">
+          <button class="mode-card mp-create" data-act="mpCreate" data-autofocus>
+            <span class="mode-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M12 8.5v7M8.5 12h7"/></svg></span>
+            <span class="mode-name">CREATE ROOM</span>
+            <span class="mode-desc">Host a game: pick a room name and password, choose the mode and start when your team is ready.</span>
+            <span class="mode-tags"><i>YOU'RE THE HOST</i><i>2–4 PLAYERS</i></span>
+          </button>
+          <button class="mode-card mp-join" data-act="mpJoin">
+            <span class="mode-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4"/><path d="M4 12h11M11 8l4 4-4 4"/></svg></span>
+            <span class="mode-name">JOIN ROOM</span>
+            <span class="mode-desc">Enter the room name and password your friend shared with you.</span>
+            <span class="mode-tags"><i>ROOM NAME</i><i>PASSWORD</i></span>
+          </button>
+        </div>
+        <p class="form-note mp-note">Needs an internet connection. The host's device runs the game, so the host should keep the game open and in front.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="scrCreate" class="screen overlay">
+    <div class="panel panel-sm">
+      <div class="panel-head">
+        <button class="icon-btn" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <h2>CREATE ROOM</h2>
+      </div>
+      <form id="formCreate" class="panel-body net-form" autocomplete="off" novalidate>
+        <label class="field"><span>ROOM NAME</span><input name="room" maxlength="20" placeholder="e.g. Lahore Legends" enterkeyhint="next" spellcheck="false"></label>
+        <label class="field"><span>USERNAME</span><input name="name" maxlength="12" placeholder="Your name" enterkeyhint="next" spellcheck="false"></label>
+        <label class="field"><span>PASSWORD</span><span class="pw"><input name="password" type="password" maxlength="32" placeholder="At least 4 characters" enterkeyhint="go"><button type="button" class="pw-eye" data-eye aria-label="Show password"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></span></label>
+        <p class="form-note">Your password never leaves this device. Friends find the room with a scrambled fingerprint of its name and password.</p>
+        <p class="form-status" data-status role="status"></p>
+        <button type="submit" class="btn btn-primary">CREATE ROOM</button>
+      </form>
+    </div>
+  </section>
+
+  <section id="scrJoin" class="screen overlay">
+    <div class="panel panel-sm">
+      <div class="panel-head">
+        <button class="icon-btn" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <h2>JOIN ROOM</h2>
+      </div>
+      <form id="formJoin" class="panel-body net-form" autocomplete="off" novalidate>
+        <label class="field"><span>ROOM NAME</span><input name="room" maxlength="20" placeholder="The room your friend made" enterkeyhint="next" spellcheck="false"></label>
+        <label class="field"><span>USERNAME</span><input name="name" maxlength="12" placeholder="Your name" enterkeyhint="next" spellcheck="false"></label>
+        <label class="field"><span>PASSWORD</span><span class="pw"><input name="password" type="password" maxlength="32" placeholder="Room password" enterkeyhint="go"><button type="button" class="pw-eye" data-eye aria-label="Show password"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></span></label>
+        <p class="form-status" data-status role="status"></p>
+        <button type="submit" class="btn btn-primary">JOIN ROOM</button>
+      </form>
+    </div>
+  </section>
+
+  <section id="scrLobby" class="screen overlay">
+    <div class="panel panel-wide">
+      <div class="panel-head">
+        <button class="icon-btn" data-act="leaveRoom" aria-label="Leave room"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <h2>ROOM <span id="lobbyRoom" class="lobby-room"></span></h2>
+        <span id="lobbyCount" class="trophy-count">1/4</span>
+      </div>
+      <div class="panel-body">
+        <p id="lobbyShare" class="lobby-share">Share the <b>room name</b> and <b>password</b> with your friends so they can join.</p>
+        <div class="lobby-grid">
+          <div class="lobby-players">
+            <h4 class="sub-h">PLAYERS</h4>
+            <ul id="lobbyList" class="lobby-list"></ul>
+          </div>
+          <div id="lobbySettings" class="lobby-settings">
+            <h4 class="sub-h">GAME SETTINGS <span id="lobbyHostOnly" class="lobby-note">SET BY THE HOST</span></h4>
+            <div class="row"><span class="lbl">Mode</span><span class="seg" data-lobby="mode"><button data-val="arcade">ARCADE</button><button data-val="hardcore">HARDCORE</button></span></div>
+            <div class="row lob-arcade"><span class="lbl">Difficulty</span><span class="seg" data-lobby="diff"><button data-val="easy">EASY</button><button data-val="normal">NORMAL</button><button data-val="hard">HARD</button></span></div>
+            <div class="row lob-arcade"><span class="lbl">Hearts</span><span class="row-ctl"><input type="range" min="1" max="10" step="1" data-lobby="hearts" aria-label="Starting hearts"><output id="lobbyHeartsOut"></output></span></div>
+            <div class="row lob-hardcore"><span class="lbl">Challenge</span><span class="seg" data-lobby="tier"><button data-val="extreme">EXTREME</button><button data-val="insane">INSANE</button><button data-val="brutal">BRUTAL</button></span></div>
+            <div class="row"><span class="lbl">Max players</span><span class="seg" data-lobby="max"><button data-val="2">2</button><button data-val="3">3</button><button data-val="4">4</button></span></div>
+            <p id="lobbyRules" class="lobby-desc"></p>
+          </div>
+        </div>
+      </div>
+      <div class="panel-foot">
+        <button id="btnLobbyStart" class="btn btn-primary" data-act="lobbyStart">START GAME</button>
+        <p id="lobbyWait" class="lobby-wait">WAITING FOR THE HOST TO START…</p>
+        <button class="btn" data-act="skins">CHANGE SKIN</button>
+        <button class="btn btn-ghost" data-act="leaveRoom">LEAVE ROOM</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="scrDown" class="screen down-screen">
+    <div class="panel panel-sm down-panel">
+      <div class="panel-body over">
+        <h2 class="over-title">YOU'RE DOWN!</h2>
+        <p id="downText" class="down-text"></p>
+        <div class="menu-buttons">
+          <button class="btn btn-primary" data-act="spectate" data-autofocus>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>SPECTATE
+          </button>
+          <button class="btn btn-ghost" data-act="leaveRoom">LEAVE GAME</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="scrNetMsg" class="screen overlay">
+    <div class="panel panel-sm">
+      <div class="panel-body over">
+        <h2 id="netMsgTitle" class="over-title">DISCONNECTED</h2>
+        <p id="netMsgText" class="down-text"></p>
+        <div class="menu-buttons"><button class="btn btn-primary" data-act="netMsgOk" data-autofocus>OK</button></div>
       </div>
     </div>
   </section>
@@ -408,7 +540,8 @@
           </button>
           <button id="btnRestart" class="btn" data-act="restart">RESTART</button>
           <button class="btn" data-act="settings">SETTINGS</button>
-          <button class="btn btn-ghost" data-act="menu">MAIN MENU</button>
+          <button id="btnPauseMenu" class="btn btn-ghost" data-act="menu">MAIN MENU</button>
+          <p id="pauseMpNote" class="form-note hidden">The game keeps running for your team while this menu is open.</p>
         </div>
       </div>
     </div>
@@ -439,7 +572,7 @@
       </div>
       <div class="panel-foot">
         <button id="overPrimary" class="btn btn-primary" data-act="restart" data-autofocus>PLAY AGAIN</button>
-        <button class="btn" data-act="menu">MAIN MENU</button>
+        <button id="overSecondary" class="btn" data-act="menu">MAIN MENU</button>
       </div>
     </div>
   </section>
@@ -542,6 +675,8 @@
 <script src="audio.js"></script>
 <script src="input.js"></script>
 <script src="skins.js"></script>
+<script src="peerjs.min.js"></script>
+<script src="net.js"></script>
 <script src="bosses.js"></script>
 <script src="game.js"></script>
 <script src="intro.js"></script>

@@ -29,7 +29,7 @@ const BossKit = (K) => {
   function startSwoop(e, count) {
     const p = pl();
     e.swoop = { t: 0, stage: 'warn', n: count, x0: e.x, y0: e.y, tx: p.x, ty: clamp(p.y, view.h * 0.3, view.h - e.h * 0.3) };
-    Sfx.play('charge');
+    K.sfx('charge');
   }
   function updateSwoop(e, dt) {
     const s = e.swoop;
@@ -40,7 +40,7 @@ const BossKit = (K) => {
       e.x += rand(-1.5, 1.5) * k;
       // keep re-aiming during the first half of the warning
       if (s.t < warn * 0.5) { const p = pl(); s.tx = p.x; s.ty = clamp(p.y, view.h * 0.3, view.h - e.h * 0.3); }
-      if (s.t > warn) { s.stage = 'dive'; s.t = 0; Sfx.play('dash'); }
+      if (s.t > warn) { s.stage = 'dive'; s.t = 0; K.sfx('dash'); }
     } else if (s.stage === 'dive') {
       const u = Math.min(1, s.t / 0.5);
       const ov = 1.15;
@@ -120,11 +120,11 @@ const BossKit = (K) => {
       const m = spawn(type, clamp(e.x + side * e.w * (0.35 + 0.15 * (i >> 1)), 40 * k, view.w - 40 * k), e.y, o);
       K.P(m.x, m.y, 0, 0, 0.4, 60 * k, e.def.glow, K.RING);
     }
-    Sfx.play('cast');
+    K.sfx('cast');
   };
   /** Several rings in a row, each rotated half a step so the gaps move. */
   const rings = (e, count, gap, fn) => { for (let i = 0; i < count; i++) later(e, i ? gap : 0, fn); };
-  const ultBanner = (e) => UI.banner('LAST STAND!', e.def.ultName, 'warning', 2200);
+  const ultBanner = (e) => K.banner('LAST STAND!', e.def.ultName, 'warning', 2200);
 
   // ================================================================ 1. WARDEN
   const heartbeat = (e) => {
@@ -135,13 +135,13 @@ const BossKit = (K) => {
     const n = Math.min(13, 5 + T(e) * 2);
     K.fan(e.x, e.y + e.h * 0.18, n, 0.15, sp(310, e), 'sonic', null, lead);
     e.mouth = 0.35;
-    Sfx.play('sonic');
+    K.sfx('sonic');
   }
   function sonicRing(e, n, speed) {
     K.ring(e.x, e.y + e.h * 0.18, n, sp(speed, e), 'orb');
     K.P(e.x, e.y + e.h * 0.18, 0, 0, 0.5, 150 * view.k, C.teal, K.RING);
     e.mouth = 0.4;
-    Sfx.play('sonic');
+    K.sfx('sonic');
   }
   const warden = {
     name: 'THE WARDEN', img: 'warden', w: 330, h: 168, hp: 750, hpw: 1, score: 8000, glow: C.teal, pal: PAL.warden,
@@ -195,7 +195,7 @@ const BossKit = (K) => {
               K.eShoot(e.x, e.y + e.h * 0.18, Math.cos(ang) * v, Math.sin(ang) * v, 'orb');
             }
             e.mouth = 0.3;
-            Sfx.play('sonic');
+            K.sfx('sonic');
           };
           rings(e, t >= 3 ? 2 : 1, 0.45, wave);
           e.atk = 1.1;
@@ -221,7 +221,7 @@ const BossKit = (K) => {
           K.P(e.x, e.y, 0, 0, 0.5, 160 * k, C.teal, K.RING);
           e.mouth = 0.4;
           e.atk = 1.2;
-          Sfx.play('sonic');
+          K.sfx('sonic');
           break;
         }
         case 'summon':
@@ -231,7 +231,7 @@ const BossKit = (K) => {
               spawn('vex', e.x + side * e.w * 0.3, e.y + e.h * 0.4);
               if (t >= 3) spawn('skeleton', e.x + side * e.w * 0.6, e.y);
             }
-            Sfx.play('cast');
+            K.sfx('cast');
           }
           e.atk = 1.2;
           break;
@@ -243,7 +243,7 @@ const BossKit = (K) => {
             const side = i === 0 ? (p.x < view.w / 2 ? 1 : -1) : (p.x < view.w / 2 ? -1 : 1);
             e.beams.push(K.makeBeam(clamp(p.x + side * view.w * 0.3, 40 * k, view.w - 40 * k), false, true, 'teal'));
           }
-          Sfx.play('charge');
+          K.sfx('charge');
           e.atk = 1.1;
           break;
         }
@@ -259,7 +259,7 @@ const BossKit = (K) => {
           b.sweep = true;
           b.vx = (x1 - x0) / b.fire;
           e.beams.push(b);
-          Sfx.play('charge');
+          K.sfx('charge');
           e.atk = 1.1;
           break;
         }
@@ -271,21 +271,21 @@ const BossKit = (K) => {
             sh.tx = pos[i][0] * view.w;
             sh.ty = pos[i][1] * view.h;
           }
-          Sfx.play('shriek');
+          K.sfx('shriek');
           e.atk = 1.0;
           break;
         }
         case 'darkness':
           K.setDark(5 + t * 0.5);
           e.harassT = 0;
-          Sfx.play('darkness');
+          K.sfx('darkness');
           K.popup(e.x, e.y + e.h * 0.6, 'DARKNESS', '#8ffff2', 12, 1.4);
           e.atk = 0.6;
           break;
         case 'charge': {
           const p = pl();
           e.charge = { t: 0, x: p.x, y0: e.y, ty: clamp(p.y - 10 * k, e.ty, view.h - e.h * 0.4), hit: false, n: 1 + (t >= 3 ? 1 : 0) };
-          Sfx.play('charge');
+          K.sfx('charge');
           e.atk = 1.0;
           break;
         }
@@ -303,7 +303,7 @@ const BossKit = (K) => {
       later(e, 0.2, () => {
         const p = pl();
         for (const off of [-0.3, 0, 0.3]) e.beams.push(Object.assign(K.makeBeam(clamp(p.x + off * view.w, 40 * k, view.w - 40 * k), false, true, 'teal'), { warn: 1.2 }));
-        Sfx.play('charge');
+        K.sfx('charge');
       });
       rings(e, 3, 0.35, () => sonicRing(e, 24 + T(e) * 3, 230));
       for (let i = 0; i < 3; i++) later(e, 0.3, () => sonicVolley(e, i === 1));
@@ -335,7 +335,7 @@ const BossKit = (K) => {
         K.shake(0.8);
         K.P(e.x, e.y + e.h * 0.4, 0, 0, 0.6, 260 * k, C.teal, K.RING);
         K.ring(e.x, e.y + e.h * 0.3, 16 + T(e) * 3, sp(230, e), 'orb');
-        Sfx.play('explode', 2);
+        K.sfx('explode', 2);
         Input.vibrate(50);
       }
     } else if (c.t < 2.25) {
@@ -343,7 +343,7 @@ const BossKit = (K) => {
     } else if (c.n > 1) {
       const p = pl();
       Object.assign(c, { t: 0, x: p.x, y0: e.y, ty: clamp(p.y - 10 * k, e.ty, view.h - e.h * 0.4), hit: false, n: c.n - 1 });
-      Sfx.play('charge');
+      K.sfx('charge');
     } else {
       e.charge = null;
     }
@@ -356,13 +356,13 @@ const BossKit = (K) => {
     const s = sp(300, e);
     for (const [hx, hy] of HEADS) K.fan(e.x + hx * e.w, e.y + hy * e.h, per, 0.12, s, 'wskull', null, lead);
     e.mouth = 0.3;
-    Sfx.play('wshoot');
+    K.sfx('wshoot');
   }
   function skullRing(e) {
     K.ring(e.x, e.y, 22 + T(e) * 3, sp(230, e), 'wskull');
     K.P(e.x, e.y, 0, 0, 0.7, 320 * view.k, C.purple, K.RING);
     K.shake(0.5);
-    Sfx.play('explode', 2);
+    K.sfx('explode', 2);
   }
   const wither = {
     name: 'THE WITHER', img: 'wither', w: 300, h: 180, hp: 1000, hpw: 0.63, score: 10000, glow: C.purple, pal: PAL.wither,
@@ -377,7 +377,7 @@ const BossKit = (K) => {
       const [hx, hy] = HEADS[e.head];
       K.fan(e.x + hx * e.w, e.y + hy * e.h, e.phase >= 3 ? 2 : 1, 0.1, sp(300, e), 'wskull', null, true);
     },
-    onFight(e) { K.explode(e.x, e.y, PAL.wither, 2.5, C.blue); UI.flash('white'); },
+    onFight(e) { K.explode(e.x, e.y, PAL.wither, 2.5, C.blue); K.flash('white'); },
     onPhase(e, ph) {
       if (ph === 2) e.armor = true;
       rings(e, ph === 3 ? 2 : 1, 0.5, skullRing);
@@ -409,7 +409,7 @@ const BossKit = (K) => {
         case 'blueskull':
           K.fan(e.x, e.y - e.h * 0.22, Math.min(5, 2 + Math.floor(t / 2)), 0.4, K.bulletSpeed(160), 'bskull');
           e.mouth = 0.4;
-          Sfx.play('wshoot');
+          K.sfx('wshoot');
           e.atk = 1.1;
           break;
         case 'summonws':
@@ -420,13 +420,13 @@ const BossKit = (K) => {
         case 'dashbomb': {
           const dir = e.x < view.w / 2 ? 1 : -1;
           e.dash = { t: 0, dir, dur: a === 'dashbomb' ? 1.5 : 1.15, x0: e.x, x1: dir > 0 ? view.w - e.w * 0.45 : e.w * 0.45, y0: e.y, low: a === 'dashbomb', drop: 0 };
-          Sfx.play('charge');
+          K.sfx('charge');
           e.atk = 0.8;
           break;
         }
         case 'storm':
           K.spiral(e, { time: 3, arms: 2 + (t >= 3 ? 1 : 0), twin: t >= 2, kind: 'wskull', speed: 220, oy: -0.22, rate: 0.1 });
-          Sfx.play('wither');
+          K.sfx('wither');
           e.atk = 1.0;
           break;
         case 'ragering':
@@ -440,7 +440,7 @@ const BossKit = (K) => {
     ultimate(e) {
       ultBanner(e);
       rings(e, 3, 0.55, skullRing);
-      later(e, 0.3, () => { K.fan(e.x, e.y - e.h * 0.22, 6, 0.5, K.bulletSpeed(170), 'bskull'); Sfx.play('wshoot'); });
+      later(e, 0.3, () => { K.fan(e.x, e.y - e.h * 0.22, 6, 0.5, K.bulletSpeed(170), 'bskull'); K.sfx('wshoot'); });
       later(e, 0.4, () => this.attack(e, 'dashbomb'));
     },
     glowFx(e) {
@@ -490,7 +490,7 @@ const BossKit = (K) => {
     const base = Math.atan2(p.y - e.y, p.x - e.x);
     const warn = Math.max(0.85, 1.3 - T(e) * 0.08);
     for (const off of offs) e.lasers.push({ t: 0, off, ang: base + off, warn, fire: 0.5 + T(e) * 0.05, fired: false, done: false });
-    Sfx.play('charge');
+    K.sfx('charge');
   }
   function spikeWaves(e, waves) {
     const n = 18 + T(e) * 4;
@@ -498,7 +498,7 @@ const BossKit = (K) => {
       later(e, i ? 0.3 : 0, () => {
         K.ring(e.x, e.y, n, sp(i % 2 ? 210 : 250, e), 'spike', null, rand(TAU));
         K.P(e.x, e.y, 0, 0, 0.4, e.w * 0.8, C.orange, K.RING);
-        Sfx.play('sonic');
+        K.sfx('sonic');
       });
     }
   }
@@ -525,12 +525,15 @@ const BossKit = (K) => {
           L.ang = K.turnToward(L.ang, aim, 1.8 * dt);
         } else if (L.t < L.warn + L.fire) {
           if (track) L.ang = K.turnToward(L.ang, aim, (0.45 + T(e) * 0.08) * dt);
-          if (!L.fired) { L.fired = true; Sfx.play('beam'); K.shake(0.4); }
-          const dx = p.x - e.x;
-          const dy = p.y - e.y;
-          const along = dx * Math.cos(L.ang) + dy * Math.sin(L.ang);
-          const perp = Math.abs(dx * Math.sin(L.ang) - dy * Math.cos(L.ang));
-          if (p.alive && along > 0 && perp < 18 * view.k + p.r) K.hurtPlayer(K.heavy());
+          if (!L.fired) { L.fired = true; K.sfx('beam'); K.shake(0.4); }
+          // the beam burns any ship in its path, not only the one it's tracking
+          K.eachPlayer((q) => {
+            const dx = q.x - e.x;
+            const dy = q.y - e.y;
+            const along = dx * Math.cos(L.ang) + dy * Math.sin(L.ang);
+            const perp = Math.abs(dx * Math.sin(L.ang) - dy * Math.cos(L.ang));
+            if (along > 0 && perp < 18 * view.k + q.r) K.hurtPlayer(K.heavy());
+          });
         } else {
           L.done = true;
         }
@@ -563,7 +566,7 @@ const BossKit = (K) => {
           K.setFatigue(4 + t);
           e.curse = 1.4;
           K.popup(pl().x, pl().y - 60 * k, 'MINING FATIGUE', '#c78bff', 12, 1.6);
-          Sfx.play('darkness');
+          K.sfx('darkness');
           e.atk = 0.7;
           break;
         case 'summon': {
@@ -572,7 +575,7 @@ const BossKit = (K) => {
             const g = spawn('guardian', e.x + (i - (n - 1) / 2) * 90 * k, e.y + e.h * 0.3);
             g.ty = view.h * rand(0.28, 0.45);
           }
-          Sfx.play('cast');
+          K.sfx('cast');
           e.atk = 1.1;
           break;
         }
@@ -638,14 +641,14 @@ const BossKit = (K) => {
       b.fuse = 1.7;
     }
     e.mouth = 0.5;
-    Sfx.play('ghast');
+    K.sfx('ghast');
   }
   function acidStorm(e, n) {
     const k = view.k;
     const p = pl();
     K.addHazard('acid', p.x, p.y, 70 * k, 3.5, 0.9);
     for (let i = 1; i < n; i++) K.addHazard('acid', rand(0.1, 0.9) * view.w, rand(0.45, 0.92) * view.h, 60 * k, 3.5, 0.9 + i * 0.08);
-    Sfx.play('darkness');
+    K.sfx('darkness');
   }
   const dragon = {
     name: 'ENDER DRAGON', img: 'dragon', w: 170, h: 106, hp: 1100, hpw: 0.65, score: 12000, glow: C.purple, pal: PAL.dragon,
@@ -689,7 +692,7 @@ const BossKit = (K) => {
           K.fan(e.x, e.y + e.h * 0.38, 10 + t * 3, 0.12, sp(270, e), 'magic', C.pink);
           if (t >= 2) later(e, 0.3, () => K.fan(e.x, e.y + e.h * 0.38, 7 + t * 2, 0.14, sp(300, e), 'magic', C.pink, true));
           e.mouth = 0.3;
-          Sfx.play('eshoot');
+          K.sfx('eshoot');
           e.atk = 0.9;
           break;
         case 'swoop':
@@ -702,7 +705,7 @@ const BossKit = (K) => {
             K.P(e.x, e.y, 0, 0, 0.6, 300 * k, C.purple, K.RING);
           });
           K.shake(0.6);
-          Sfx.play('roar');
+          K.sfx('roar');
           e.atk = 1.1;
           break;
         case 'acidstorm':
@@ -773,7 +776,7 @@ const BossKit = (K) => {
     }
     K.P(e.x, e.y + e.h * 0.45, 0, 0, 0.5, e.w, C.grey, K.RING);
     K.shake(0.6);
-    Sfx.play('explode', 1.8);
+    K.sfx('explode', 1.8);
   }
   const ravager = {
     name: 'RAVAGER', img: 'ravager', w: 250, h: 208, hp: 1200, hpw: 1, score: 12000, glow: C.red, pal: PAL.ravager,
@@ -807,20 +810,19 @@ const BossKit = (K) => {
         case 'charge': {
           const p = pl();
           e.rush = { t: 0, stage: 'warn', n: Math.min(5, 2 + Math.floor(t / 2)), hx: e.x, hy: e.ty, tx: p.x, ty: clamp(p.y, e.ty, view.h - e.h * 0.35), x0: e.x, y0: e.y };
-          Sfx.play('charge');
+          K.sfx('charge');
           e.atk = 0.9;
           break;
         }
         case 'roar': {
-          const p = pl();
           e.mouth = 0.6;
           const R = 340 * k;
           for (const b of K.bullets) if (!b.dead && (b.x - e.x) ** 2 + (b.y - e.y) ** 2 < R * R) { b.dead = true; K.spark(b.x, b.y, C.white, 1); }
-          if ((p.x - e.x) ** 2 + (p.y - e.y) ** 2 < (R * 1.4) ** 2) K.knockPlayer(e.x, e.y, 950 * k);
+          K.eachPlayer((p) => { if ((p.x - e.x) ** 2 + (p.y - e.y) ** 2 < (R * 1.4) ** 2) K.knockPlayer(e.x, e.y, 950 * k); });
           rings(e, 2 + (t >= 3 ? 1 : 0), 0.3, () => K.ring(e.x, e.y + e.h * 0.3, 20 + t * 3, sp(240, e), 'orb', C.red));
           K.P(e.x, e.y, 0, 0, 0.6, R, C.red, K.RING);
           K.shake(0.7);
-          Sfx.play('roar');
+          K.sfx('roar');
           e.atk = 1.1;
           break;
         }
@@ -844,7 +846,7 @@ const BossKit = (K) => {
       later(e, 0.3, () => {
         const p = pl();
         e.rush = { t: 0, stage: 'warn', n: 5, hx: e.x, hy: e.ty, tx: p.x, ty: clamp(p.y, e.ty, view.h - e.h * 0.35), x0: e.x, y0: e.y };
-        Sfx.play('charge');
+        K.sfx('charge');
       });
     },
     drawFx(e) {
@@ -862,7 +864,7 @@ const BossKit = (K) => {
     if (r.stage === 'warn') {
       e.x = r.x0 + rand(-2, 2) * view.k;
       if (r.t < warn * 0.5) { const p = pl(); r.tx = p.x; r.ty = clamp(p.y, e.ty, view.h - e.h * 0.35); }
-      if (r.t > warn) { r.stage = 'go'; r.t = 0; Sfx.play('dash'); }
+      if (r.t > warn) { r.stage = 'go'; r.t = 0; K.sfx('dash'); }
     } else if (r.stage === 'go') {
       const u = Math.min(1, r.t / 0.42);
       e.x = lerp(r.x0, r.tx, u * u);
@@ -885,7 +887,7 @@ const BossKit = (K) => {
         if (r.n > 0) {
           const p = pl();
           Object.assign(r, { t: 0, stage: 'warn', x0: e.x, y0: e.y, tx: p.x, ty: clamp(p.y, e.ty, view.h - e.h * 0.35) });
-          Sfx.play('charge');
+          K.sfx('charge');
         } else {
           e.rush = null;
         }
@@ -902,7 +904,7 @@ const BossKit = (K) => {
       b.ty = i === 0 ? pl().y : rand(0.5, 0.92) * view.h;
     }
     e.mouth = 0.4;
-    Sfx.play('blaze');
+    K.sfx('blaze');
   }
   const magma = {
     name: 'MAGMA KING', img: 'magma', w: 200, h: 200, hp: 1150, hpw: 1, score: 12500, glow: C.orange, pal: PAL.magma,
@@ -1006,7 +1008,7 @@ const BossKit = (K) => {
     for (let i = 0; i < (K.hiQ() ? 12 : 5); i++) K.P(e.x + rand(-0.5, 0.5) * e.w, e.y + e.h * 0.45, rand(-200, 200) * k, -rand(60, 260) * k, 0.7, rand(5, 10) * k, pick(PAL.magma), K.CUBE, 2, 500 * k);
     K.addHazard('lava', e.x, e.y + e.h * 0.35, (big ? 90 : 60) * k, big ? 4 : 3, 0);
     e.sq = 1;
-    Sfx.play('explode', big ? 2 : 1.4);
+    K.sfx('explode', big ? 2 : 1.4);
     Input.vibrate(big ? 60 : 25);
   }
   function updateHop(e, dt) {
@@ -1015,7 +1017,7 @@ const BossKit = (K) => {
     h.t += dt;
     if (h.stage === 'pre') {
       e.sq = damp(e.sq, 1, 10, dt);
-      if (h.t > 0.28) { h.stage = h.kind === 'hop' ? 'air' : 'up'; h.t = 0; Sfx.play('slime'); }
+      if (h.t > 0.28) { h.stage = h.kind === 'hop' ? 'air' : 'up'; h.t = 0; K.sfx('slime'); }
     } else if (h.stage === 'air') {
       const u = Math.min(1, h.t / 0.6);
       e.x = lerp(h.x0, h.x1, u);
@@ -1109,7 +1111,7 @@ const BossKit = (K) => {
       e.beams.push(b);
     }
     if (extraWave) later(e, 0.9, () => firePillars(e, Math.ceil(n / 2), false));
-    Sfx.play('charge');
+    K.sfx('charge');
   }
   const blazeking = {
     name: 'BLAZE KING', img: 'blaze', w: 170, h: 170, hp: 1150, hpw: 0.4, score: 13000, glow: C.orange, pal: PAL.blaze,
@@ -1140,7 +1142,7 @@ const BossKit = (K) => {
         case 'burst': {
           const per = Math.min(7, 3 + Math.floor(t / 2) * 2);
           for (let i = 0; i < 4 + t; i++) {
-            later(e, i ? 0.16 : 0, () => { K.fan(e.x, e.y + e.h * 0.25, per, 0.18, sp(330, e), 'fire', null, i % 2 === 1); Sfx.play('blaze'); });
+            later(e, i ? 0.16 : 0, () => { K.fan(e.x, e.y + e.h * 0.25, per, 0.18, sp(330, e), 'fire', null, i % 2 === 1); K.sfx('blaze'); });
           }
           e.atk = 0.9;
           break;
@@ -1160,7 +1162,7 @@ const BossKit = (K) => {
             const s = K.bulletSpeed(160);
             K.eShoot(e.x + Math.cos(a0) * e.w * 0.6, e.y + Math.sin(a0) * e.h * 0.4, Math.cos(a0) * s, Math.sin(a0) * s, 'hfire');
           }
-          Sfx.play('blaze');
+          K.sfx('blaze');
           e.atk = 1.1;
           break;
         }
@@ -1188,7 +1190,7 @@ const BossKit = (K) => {
           // each bullet gets one roll against the rods: 30% are blocked
           if (Math.random() < 0.7) { b.rodPass = true; return false; }
           K.spark(b.x, b.y, C.orange, 3);
-          Sfx.play('armor');
+          K.sfx('armor');
           return true;
         }
       }
@@ -1238,7 +1240,7 @@ const BossKit = (K) => {
       }
       K.burst(x, y, C.blue, 12);
     });
-    Sfx.play('teleport');
+    K.sfx('teleport');
     e.blinkT = 7;
   }
   const illusioner = {
@@ -1266,7 +1268,7 @@ const BossKit = (K) => {
         e.hx = rand(0.15, 0.85) * view.w;
         e.x = e.hx;
         K.burst(e.x, e.y, C.blue, 12);
-        Sfx.play('teleport');
+        K.sfx('teleport');
       }
     },
     busy: () => false,
@@ -1284,7 +1286,7 @@ const BossKit = (K) => {
           K.fan(e.x, e.y + e.h * 0.2, 7 + t * 2, 0.16, sp(260, e), 'magic', C.blue);
           if (t >= 1) for (const c of enemies) if (c.type === 'illusion' && !c.dead) K.fan(c.x, c.y + c.h * 0.2, 3, 0.2, sp(230, e), 'magic', C.blue, true);
           e.mouth = 0.3;
-          Sfx.play('eshoot');
+          K.sfx('eshoot');
           e.atk = 0.9;
           break;
         case 'arrows': {
@@ -1295,7 +1297,7 @@ const BossKit = (K) => {
               const s = K.bulletSpeed(380) * rand(0.9, 1.1);
               K.eShoot(rand(0.03, 0.97) * view.w, -rand(10, 260) * k, Math.cos(a0) * s, Math.sin(a0) * s, 'arrow');
             }
-            Sfx.play('eshoot');
+            K.sfx('eshoot');
           };
           rings(e, t >= 2 ? 2 : 1, 0.7, wave);
           e.atk = 1.1;
@@ -1305,13 +1307,13 @@ const BossKit = (K) => {
           const lines = Math.min(5, 1 + (t >= 1 ? 2 : 0) + (t >= 3 ? 2 : 0));
           const base = K.aimAt(e.x, e.y);
           for (let i = 0; i < lines; i++) fangLine(e, base + (i - (lines - 1) / 2) * 0.35);
-          Sfx.play('cast');
+          K.sfx('cast');
           e.atk = 1.1;
           break;
         }
         case 'fangtrap':
           fangCircle(e);
-          Sfx.play('cast');
+          K.sfx('cast');
           e.atk = 0.9;
           break;
         case 'clones':
@@ -1321,7 +1323,7 @@ const BossKit = (K) => {
         case 'blind':
           K.setDark(3.5 + t * 0.5);
           K.popup(pl().x, pl().y - 60 * k, 'BLINDNESS', '#8fb0ff', 12, 1.4);
-          Sfx.play('darkness');
+          K.sfx('darkness');
           e.atk = 0.8;
           break;
         default:
@@ -1347,7 +1349,7 @@ const BossKit = (K) => {
       b.fuse = 1.8;
     }
     e.mouth = 0.5;
-    Sfx.play('ghast');
+    K.sfx('ghast');
   }
   function tears(e, n, homing) {
     const k = view.k;
@@ -1355,14 +1357,14 @@ const BossKit = (K) => {
       const b = K.eShoot(rand(0.03, 0.97) * view.w, -rand(10, 300) * k, 0, K.bulletSpeed(230) * rand(0.85, 1.15), 'tear');
       if (homing) b.home = 0.6;
     }
-    Sfx.play('pop');
+    K.sfx('pop');
   }
   function scream(e) {
     K.ring(e.x, e.y, 24 + T(e) * 2, sp(220, e), 'fire');
     K.P(e.x, e.y, 0, 0, 0.6, 320 * view.k, C.red, K.RING);
     K.shake(0.8);
-    Sfx.play('ghast');
-    Sfx.play('shriek');
+    K.sfx('ghast');
+    K.sfx('shriek');
   }
   function megaFireball(e) {
     const ang = K.aimAt(e.x, e.y);
@@ -1372,7 +1374,7 @@ const BossKit = (K) => {
     b.hp = 8;
     b.fuse = 2.3;
     b.big = true;
-    Sfx.play('ghast');
+    K.sfx('ghast');
   }
   const ghastqueen = {
     name: 'GHAST QUEEN', img: 'ghast', w: 250, h: 250, hp: 1300, hpw: 1.2, score: 14000, glow: C.white, pal: PAL.ghast,
@@ -1443,7 +1445,7 @@ const BossKit = (K) => {
       if (i >= gap && i < gap + gapW) continue;
       K.eShoot(((i + 0.5) / n) * view.w, -12 * k, 0, K.bulletSpeed(150 + T(e) * 10), 'orb', C.red);
     }
-    Sfx.play('sonic');
+    K.sfx('sonic');
   }
   const phantomlord = {
     name: 'PHANTOM OVERLORD', img: 'phantomlord', w: 380, h: 226, hp: 1400, hpw: 1, score: 15000, glow: C.red, pal: PAL.phantom,
@@ -1486,7 +1488,7 @@ const BossKit = (K) => {
                 const s = sp(270, e);
                 K.eShoot(e.x, e.y, Math.cos(ang) * s, Math.sin(ang) * s, 'magic', C.red);
               }
-              Sfx.play('eshoot');
+              K.sfx('eshoot');
             });
           }
           e.atk = 1.0;
@@ -1499,7 +1501,7 @@ const BossKit = (K) => {
         case 'swarm': {
           const n = 5 + t;
           for (let i = 0; i < n; i++) spawn('phantom', rand(0.1, 0.9) * view.w, -40 * k - i * 20 * k);
-          Sfx.play('vex');
+          K.sfx('vex');
           e.atk = 1.2;
           break;
         }
@@ -1511,7 +1513,7 @@ const BossKit = (K) => {
             const ph = spawn('phantom', left ? -30 * k : view.w + 30 * k, rand(0.2, 0.5) * view.h);
             ph.bx = left ? 80 * k : view.w - 80 * k;
           }
-          Sfx.play('darkness');
+          K.sfx('darkness');
           e.atk = 0.9;
           break;
         }
