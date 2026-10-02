@@ -12,6 +12,7 @@ const Sfx = (() => {
   const THROTTLE = {
     shoot: 0.055, hit: 0.03, explode: 0.035, eshoot: 0.07, graze: 0.05, shield: 0.08, hover: 0.04,
     thunder: 0.15, tick: 0.2, slime: 0.08, blaze: 0.06, armor: 0.06, shulker: 0.1, wshoot: 0.08, teleport: 0.1, pop: 0.05,
+    glass: 0.06, crossbow: 0.06, wind: 0.07, bark: 0.25, meow: 0.4, buzz: 0.2, gulp: 0.12, chime: 0.15, croak: 0.3, bubble: 0.3, grunt: 0.2,
   };
 
   function unlock() {
@@ -236,6 +237,45 @@ const Sfx = (() => {
     trophy() {
       [0, 7, 12, 16, 19].forEach((n, i) => tone({ type: 'square', f: semi(660, n), d: 0.22, v: 0.045, lp: 4000, delay: i * 0.07 }));
     },
+    // ---- witch, pillager, breeze, piglin brute
+    glass() { // a splash potion shattering
+      noise({ type: 'highpass', f: 4200, d: 0.22, v: 0.1 });
+      [0, 5, 9].forEach((n, i) => tone({ type: 'sine', f: semi(2200, n), f2: semi(1500, n), d: 0.12, v: 0.03, delay: i * 0.025 }));
+    },
+    drink() { [0, 1, 2].forEach((i) => tone({ type: 'sine', f: 260, f2: 180, d: 0.09, v: 0.06, delay: i * 0.13 })); },
+    crossbow() {
+      tone({ type: 'square', f: 1600, f2: 300, d: 0.05, v: 0.04, lp: 3000 });
+      noise({ type: 'bandpass', f: 1100, f2: 500, d: 0.12, v: 0.08, q: 2, delay: 0.02 });
+    },
+    wind() { noise({ type: 'bandpass', f: 500, f2: 2200, d: 0.3, v: 0.09, q: 1.2, a: 0.03 }); },
+    grunt() {
+      tone({ type: 'sawtooth', f: 160, f2: 90, d: 0.25, v: 0.08, lp: 700 });
+      noise({ f: 600, f2: 200, d: 0.2, v: 0.06 });
+    },
+    // ---- pets
+    bark() { [0, 0.12].forEach((t) => { tone({ type: 'sawtooth', f: 520, f2: 300, d: 0.07, v: 0.05, lp: 1800, delay: t }); noise({ type: 'bandpass', f: 900, d: 0.05, v: 0.04, q: 2, delay: t }); }); },
+    meow() { tone({ type: 'triangle', f: 700, f2: 1100, d: 0.14, v: 0.05 }); tone({ type: 'triangle', f: 1100, f2: 620, d: 0.22, v: 0.05, delay: 0.13 }); },
+    buzz() { tone({ type: 'sawtooth', f: 210, f2: 240, d: 0.22, v: 0.035, lp: 1200, a: 0.03 }); },
+    chime() { [0, 4, 7].forEach((n, i) => tone({ type: 'sine', f: semi(1318, n), d: 0.3, v: 0.035, delay: i * 0.05 })); },
+    gulp() { tone({ type: 'sine', f: 380, f2: 140, d: 0.1, v: 0.09 }); },
+    croak() { tone({ type: 'square', f: 140, f2: 110, d: 0.16, v: 0.05, lp: 900 }); tone({ type: 'square', f: 150, f2: 115, d: 0.12, v: 0.04, lp: 900, delay: 0.17 }); },
+    bubble() { [0, 3, 7, 12].forEach((n, i) => tone({ type: 'sine', f: semi(500, n), f2: semi(900, n), d: 0.08, v: 0.04, delay: i * 0.06 })); },
+    // ---- new bosses + raids
+    storm() { // the Wither Storm's hungry roar
+      tone({ type: 'sawtooth', f: 110, f2: 45, d: 2.2, v: 0.26, lp: 700, a: 0.08 });
+      tone({ type: 'sawtooth', f: 116, f2: 48, d: 2.2, v: 0.18, lp: 600, a: 0.08, detune: 25 });
+      noise({ f: 900, f2: 70, d: 2, v: 0.22, a: 0.15 });
+    },
+    whisper() { // Herobrine
+      noise({ type: 'bandpass', f: 700, f2: 300, d: 1.6, v: 0.06, q: 6, a: 0.5 });
+      tone({ type: 'sine', f: 98, f2: 92, d: 2, v: 0.12, a: 0.6 });
+      tone({ type: 'sine', f: 147, f2: 139, d: 2, v: 0.05, a: 0.8 });
+    },
+    horn() { // raid horn
+      tone({ type: 'sawtooth', f: 196, d: 1.5, v: 0.11, lp: 900, a: 0.12 });
+      tone({ type: 'sawtooth', f: 233, d: 1.5, v: 0.07, lp: 900, a: 0.12, delay: 0.04 });
+      tone({ type: 'sine', f: 98, d: 1.6, v: 0.14, a: 0.2 });
+    },
     // ---- intro
     brand() { // riser into a deep impact as the V lands, then a shimmering chord
       noise({ type: 'bandpass', f: 300, f2: 3200, d: 0.95, v: 0.07, q: 3, a: 0.8 });
@@ -278,6 +318,7 @@ const Sfx = (() => {
     game: { bpm: 124, prog: [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]] },
     boss: { bpm: 146, prog: [[52, 55, 59], [53, 57, 60], [52, 55, 59], [50, 53, 57]] },  // Em F Em Dm (Warden)
     wither: { bpm: 152, prog: [[50, 53, 57], [46, 50, 53], [43, 46, 50], [45, 49, 52]] }, // Dm Bb Gm A (Wither)
+    herobrine: { bpm: 112, prog: [[48, 51, 55], [44, 48, 51], [41, 44, 48], [43, 47, 50]] }, // Cm Ab Fm G
   };
   // Lead melody for the gameplay song: absolute notes per 16th step (0 = rest), played on bars 5-8.
   const MELODY = [
@@ -366,14 +407,14 @@ const Sfx = (() => {
       return;
     }
 
-    const boss = song === 'boss' || song === 'wither';
+    const boss = song === 'boss' || song === 'wither' || song === 'herobrine';
     const second = s >= 64; // bars 5-8 add the lead line
     if (second && song === 'game') {
       const n = MELODY[bar][sub];
       if (n) voice('square', hz(n + 12), t, sixteenth * 2.6, 0.026, 3200, 0.01);
     } else if (second && boss) {
       const n = BOSS_LEAD[bar % 2][sub];
-      if (n) voice('sawtooth', hz(n + (song === 'wither' ? 10 : 12)), t, sixteenth * 1.8, 0.022, 2400, 0.01);
+      if (n) voice('sawtooth', hz(n + (song === 'wither' ? 10 : song === 'herobrine' ? 8 : 12)), t, sixteenth * 1.8, 0.022, 2400, 0.01);
     }
     // drums
     if (sub % 4 === 0 || (boss && sub === 14)) drum('kick', t);

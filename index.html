@@ -40,6 +40,10 @@
     <div class="hud-tc">
       <div id="hudWave" class="hud-wave">WAVE <b>1</b></div>
       <div id="waveProg" class="wave-prog"><i id="waveProgFill"></i></div>
+      <div id="hudVillage" class="hud-village hidden" title="Village health">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 2 11h3v9h5v-6h4v6h5v-9h3z"/></svg>
+        <span class="vl-bar"><i id="villageFill"></i></span><b id="villageHp">20</b>
+      </div>
       <div id="bossBar" class="boss-bar">
         <div id="bossName" class="boss-name">THE WARDEN</div>
         <div class="boss-track"><i id="bossLag" class="lag"></i><i id="bossFill" class="fill"></i><i id="bossShield" class="shield"></i><span id="bossTicks" class="ticks"></span></div>
@@ -114,13 +118,16 @@
         <div id="menuModeLine" class="menu-mode-line" style="--i:2"></div>
         <div class="menu-row" style="--i:3">
           <button class="btn btn-skins" data-act="skins"><img id="menuSkin" src="player.png" alt="">SKINS</button>
-          <button class="btn" data-act="how">HOW TO PLAY</button>
+          <button class="btn btn-skins btn-pets" data-act="pets"><span id="menuPet" class="menu-pet"></span>PETS</button>
         </div>
         <div class="menu-row" style="--i:4">
+          <button class="btn" data-act="how">HOW TO PLAY</button>
           <button class="btn" data-act="trophies">TROPHIES</button>
-          <button class="btn" data-act="settings">SETTINGS</button>
         </div>
-        <button id="btnQuit" class="btn btn-ghost hidden" data-act="quit" style="--i:5">QUIT</button>
+        <div class="menu-row" style="--i:5">
+          <button class="btn" data-act="settings">SETTINGS</button>
+          <button id="btnQuit" class="btn btn-ghost hidden" data-act="quit">QUIT</button>
+        </div>
       </nav>
       <div class="menu-stats">
         <span class="stat-pill">BEST<b id="menuBest">0</b></span>
@@ -128,7 +135,7 @@
         <span class="stat-pill">TROPHIES<b id="menuTrophies">0</b></span>
       </div>
     </div>
-    <div class="version">v3.2 · ONLINE CO-OP · 10 BOSSES</div>
+    <div class="version">v4.0 · 3 GAMES · 11 BOSSES · PETS</div>
     <div class="menu-hint">PRESS ENTER TO PLAY</div>
   </section>
 
@@ -141,7 +148,7 @@
       </div>
       <div class="tabs" role="tablist">
         <button role="tab" data-tab="tabControls" aria-selected="true">CONTROLS</button>
-        <button role="tab" data-tab="tabMobs" aria-selected="false">MOBS</button>
+        <button role="tab" data-tab="tabGames" aria-selected="false">GAMES</button>
         <button role="tab" data-tab="tabBosses" aria-selected="false">BOSSES</button>
         <button role="tab" data-tab="tabPowers" aria-selected="false">POWERS</button>
       </div>
@@ -177,24 +184,40 @@
           </div>
         </div>
 
+        <div id="tabGames" class="tab-page">
+          <div class="cards">
+            <div class="card"><div class="svg-ic game-ic arcade">▲</div><div><b>ARCADE</b><p>Endless waves of mobs with a boss every 5 waves. The original game.</p></div></div>
+            <div class="card"><div class="svg-ic game-ic rush">♛</div><div><b>BOSS RUSH</b><p>Only bosses, all 11 back to back. Start with a level 3 gun; faster wins give a <b>speed bonus</b>.</p></div></div>
+            <div class="card"><div class="svg-ic game-ic raid">⌂</div><div><b>VILLAGE RAID</b><p>Raids of 4 illager waves and a <b>raid captain</b>. Raiders that get past you burn the village; if it falls, the run is over. Winning a raid repairs it.</p></div></div>
+            <div class="card"><div class="svg-ic game-ic classic">⚑</div><div><b>CLASSIC</b><p>Every game saves a <b>checkpoint</b> after each boss. Continue any time, or start a new game. Any difficulty, 1–10 hearts.</p></div></div>
+            <div class="card"><div class="svg-ic game-ic hc">☠</div><div><b>HARDCORE</b><p>No saves, always Hard, no extra heart slots. Extreme (5♥), Insane (3♥) or Brutal (1♥, no heart drops, totems revive with 1♥).</p></div></div>
+            <div class="card"><img src="pet_wolf.png" alt="" class="pix"><div><b>PETS</b><p>Pick one in the main menu: Wolf, Cat, Bee, Mini Allay, Frog or Axolotl. Each follows you and has two abilities of its own.</p></div></div>
+          </div>
+        </div>
+
         <div id="tabMobs" class="tab-page">
           <div class="cards">
             <div class="card"><img src="zombie.png" alt=""><div><b>ZOMBIE</b><p>Slow and tanky. Takes a few hits.</p></div></div>
             <div class="card"><img src="skeleton.png" alt=""><div><b>SKELETON</b><p>Stops, strafes and fires aimed arrows. It glows before every shot.</p></div></div>
             <div class="card"><img src="creeper.png" alt=""><div><b>CREEPER</b><p>Hunts you and explodes. Drops TNT — shoot it to blow up nearby mobs.</p></div></div>
             <div class="card"><img src="vex.png" alt=""><div><b>VEX</b><p>Fast swarms that shake, then dive straight at you.</p></div></div>
-            <div class="card"><img src="slime.png" alt=""><div><b>SLIME<span class="tag new">NEW</span></b><p>Bounces toward you and splits into smaller slimes when hit hard enough.</p></div></div>
+            <div class="card"><img src="slime.png" alt=""><div><b>SLIME</b><p>Bounces toward you and splits into smaller slimes when hit hard enough.</p></div></div>
             <div class="card"><img src="evoker.png" alt=""><div><b>EVOKER</b><p>Summons Vex and casts magic orbs. Kill it first!</p></div></div>
-            <div class="card"><img src="blaze.png" alt=""><div><b>BLAZE<span class="tag new">NEW</span></b><p>Its rods spin faster as it heats up, then it fires a burst of fireballs.</p></div></div>
-            <div class="card"><img src="enderman.png" alt=""><div><b>ENDERMAN<span class="tag new">NEW</span></b><p>Teleports next to you, stares, then lunges. Sometimes dodges your shots.</p></div></div>
-            <div class="card"><img src="shulker.png" alt=""><div><b>SHULKER<span class="tag new">NEW</span></b><p>Armored while its shell is shut. Fires homing bullets you can shoot down.</p></div></div>
-            <div class="card"><img src="ghast.png" alt=""><div><b>GHAST<span class="tag new">NEW</span></b><p>Big fireballs that burst into shards — shoot them to blast them back!</p></div></div>
+            <div class="card"><img src="blaze.png" alt=""><div><b>BLAZE</b><p>Its rods spin faster as it heats up, then it fires a burst of fireballs.</p></div></div>
+            <div class="card"><img src="enderman.png" alt=""><div><b>ENDERMAN</b><p>Teleports next to you, stares, then lunges. Sometimes dodges your shots.</p></div></div>
+            <div class="card"><img src="shulker.png" alt=""><div><b>SHULKER</b><p>Armored while its shell is shut. Fires homing bullets you can shoot down.</p></div></div>
+            <div class="card"><img src="ghast.png" alt=""><div><b>GHAST</b><p>Big fireballs that burst into shards — shoot them to blast them back!</p></div></div>
+            <div class="card"><img src="pillager.png" alt=""><div><b>PILLAGER<span class="tag new">NEW</span></b><p>Loads its crossbow while a red laser sight follows you, then fires a fast bolt. Every third shot is a 3-bolt Multishot.</p></div></div>
+            <div class="card"><img src="witch.png" alt=""><div><b>WITCH<span class="tag new">NEW</span></b><p>Lobs splash potions: a ring shows where they land. Harming hurts, Poison leaves a cloud, Slowness makes you heavy. Drinks a healing potion when hurt.</p></div></div>
+            <div class="card"><img src="breeze.png" alt=""><div><b>BREEZE<span class="tag new">NEW</span></b><p>Hops around the sky and fires wind charges that knock your ship back.</p></div></div>
+            <div class="card"><img src="brute.png" alt=""><div><b>PIGLIN BRUTE<span class="tag new">NEW</span></b><p>Very tough. Raises its golden axe (watch the dashed line), then charges. Its charge hits hard.</p></div></div>
+            <div class="card"><img src="vindicator.png" alt=""><div><b>VINDICATOR<span class="tag new">RAID</span></b><p>Village Raid only: an illager with an iron axe that charges like a brute and marches on the village.</p></div></div>
             <div class="card wide"><div class="svg-ic elite-ic">★</div><div><b>ELITE MOBS</b><p>From wave 7, some mobs glow gold: 3x health, faster attacks, triple points and a guaranteed power-up.</p></div></div>
           </div>
         </div>
 
         <div id="tabBosses" class="tab-page">
-          <p class="tab-intro">A boss arrives every 5 waves — 10 different bosses. Their health grows with your firepower, so every fight is a real battle. At each new phase a boss raises a <b>SHIELD</b> — break it to <b>STUN</b> the boss (it takes x1.5 damage). At 10% health it makes a <b>LAST STAND</b> with its ultimate attack, and if a fight drags on it goes <b>BERSERK</b>. Breaking a shield also drops a heart or a power-up. On <b>HARD</b>, from the second boss on, beams, slams and charges cost 2 hearts. Beat all ten and they return as <b>MK II</b>, <b>MK III</b>... with a new colour and harder moves.</p>
+          <p class="tab-intro">A boss arrives every 5 waves — 11 different bosses, ending with the <b>WITHER STORM</b>, which keeps growing the longer it lives. (And maybe one more that nobody has seen...) Their health grows with your firepower, so every fight is a real battle. At each new phase a boss raises a <b>SHIELD</b> — break it to <b>STUN</b> the boss (it takes x1.5 damage). At 10% health it makes a <b>LAST STAND</b> with its ultimate attack, and if a fight drags on it goes <b>BERSERK</b>. Breaking a shield also drops a heart or a power-up. On <b>HARD</b>, from the second boss on, beams, slams and charges cost 2 hearts. Beat all eleven and they return as <b>MK II</b>, <b>MK III</b>... with a new colour and harder moves.</p>
           <div id="bossCards" class="cards"></div>
         </div>
 
@@ -237,18 +260,31 @@
     </div>
   </section>
 
-  <!-- ============================== MODE SELECT ============================== -->
+  <!-- ============================== GAME SELECT ============================== -->
   <section id="scrModes" class="screen overlay">
     <div class="panel panel-wide">
       <div class="panel-head">
         <button class="icon-btn" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
-        <h2>SELECT MODE</h2>
+        <h2>SELECT GAME</h2>
+      </div>
+      <div class="panel-body">
+        <div id="gameGrid" class="mode-grid game-grid"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== CLASSIC / HARDCORE ============================== -->
+  <section id="scrVariant" class="screen overlay">
+    <div class="panel panel-wide">
+      <div class="panel-head">
+        <button class="icon-btn" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <h2 id="variantTitle">ARCADE</h2>
       </div>
       <div class="panel-body">
         <div class="mode-grid">
-          <button class="mode-card arcade" data-act="arcade" data-autofocus>
+          <button class="mode-card arcade" data-act="classic" data-autofocus>
             <span class="mode-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4"/><path d="M5 4h11l-2 4 2 4H5" fill="currentColor" fill-opacity=".25"/></svg></span>
-            <span class="mode-name">ARCADE</span>
+            <span class="mode-name">CLASSIC</span>
             <span class="mode-desc">A checkpoint is saved after every boss. Continue your run any time, or start a new game.</span>
             <span class="mode-tags"><i>CHECKPOINTS</i><i>ANY DIFFICULTY</i><i>1–10 HEARTS</i></span>
             <span id="modeArcadeFoot" class="mode-foot">NO CHECKPOINT YET</span>
@@ -256,7 +292,7 @@
           <button class="mode-card hardcore" data-act="hardcore">
             <span class="mode-ic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C7 2 3.5 5.6 3.5 10.2c0 2.7 1.2 4.6 3 5.8V19a1 1 0 0 0 1 1h1.5v-2h2v2h2v-2h2v2h1.5a1 1 0 0 0 1-1v-3c1.8-1.2 3-3.1 3-5.8C20.5 5.6 17 2 12 2zm-3.6 11a2.1 2.1 0 1 1 0-4.2 2.1 2.1 0 0 1 0 4.2zm7.2 0a2.1 2.1 0 1 1 0-4.2 2.1 2.1 0 0 1 0 4.2z"/></svg></span>
             <span class="mode-name">HARDCORE</span>
-            <span class="mode-desc">No saves: die and you start again from wave 1. Always on HARD, and you can never gain extra hearts.</span>
+            <span id="modeHcDesc" class="mode-desc">No saves: die and you start again from the beginning. Always on HARD, and you can never gain extra hearts.</span>
             <span class="mode-tags"><i>NO SAVES</i><i>HARD ONLY</i><i>BONUS SCORE</i></span>
             <span class="mode-foot">3 CHALLENGES · EXTREME · INSANE · BRUTAL</span>
           </button>
@@ -265,12 +301,12 @@
     </div>
   </section>
 
-  <!-- ============================== ARCADE ============================== -->
+  <!-- ============================== CLASSIC (checkpoint / new game) ============================== -->
   <section id="scrArcade" class="screen overlay">
     <div class="panel">
       <div class="panel-head">
         <button class="icon-btn" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
-        <h2>ARCADE</h2>
+        <h2 id="classicTitle">ARCADE · CLASSIC</h2>
       </div>
       <div class="panel-body">
         <div id="cpCard" class="cp-card">
@@ -298,12 +334,12 @@
     <div class="panel">
       <div class="panel-head">
         <button class="icon-btn" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
-        <h2 class="hc-title">HARDCORE</h2>
+        <h2 id="hcTitle" class="hc-title">HARDCORE</h2>
       </div>
       <div class="panel-body">
         <ul class="hc-rules">
           <li>Difficulty is locked to <b>HARD</b></li>
-          <li><b>No checkpoints.</b> If you die, you start again from wave 1</li>
+          <li><b>No checkpoints.</b> If you die, you start again from the beginning</li>
           <li>You can <b>never gain extra hearts</b> beyond your starting hearts</li>
         </ul>
         <div id="tierList" class="tier-list"></div>
@@ -425,9 +461,10 @@
           </div>
           <div id="lobbySettings" class="lobby-settings">
             <h4 class="sub-h">GAME SETTINGS <span id="lobbyHostOnly" class="lobby-note">SET BY THE HOST</span></h4>
-            <div class="row"><span class="lbl">Mode</span><span class="seg" data-lobby="mode"><button data-val="arcade">ARCADE</button><button data-val="hardcore">HARDCORE</button></span></div>
-            <div class="row lob-arcade"><span class="lbl">Difficulty</span><span class="seg" data-lobby="diff"><button data-val="easy">EASY</button><button data-val="normal">NORMAL</button><button data-val="hard">HARD</button></span></div>
-            <div class="row lob-arcade"><span class="lbl">Hearts</span><span class="row-ctl"><input type="range" min="1" max="10" step="1" data-lobby="hearts" aria-label="Starting hearts"><output id="lobbyHeartsOut"></output></span></div>
+            <div class="row"><span class="lbl">Game</span><span class="seg" data-lobby="game"><button data-val="arcade">ARCADE</button><button data-val="bossrush">BOSS RUSH</button><button data-val="raid">RAID</button></span></div>
+            <div class="row"><span class="lbl">Mode</span><span class="seg" data-lobby="mode"><button data-val="classic">CLASSIC</button><button data-val="hardcore">HARDCORE</button></span></div>
+            <div class="row lob-classic"><span class="lbl">Difficulty</span><span class="seg" data-lobby="diff"><button data-val="easy">EASY</button><button data-val="normal">NORMAL</button><button data-val="hard">HARD</button></span></div>
+            <div class="row lob-classic"><span class="lbl">Hearts</span><span class="row-ctl"><input type="range" min="1" max="10" step="1" data-lobby="hearts" aria-label="Starting hearts"><output id="lobbyHeartsOut"></output></span></div>
             <div class="row lob-hardcore"><span class="lbl">Challenge</span><span class="seg" data-lobby="tier"><button data-val="extreme">EXTREME</button><button data-val="insane">INSANE</button><button data-val="brutal">BRUTAL</button></span></div>
             <div class="row"><span class="lbl">Max players</span><span class="seg" data-lobby="max"><button data-val="2">2</button><button data-val="3">3</button><button data-val="4">4</button></span></div>
             <p id="lobbyRules" class="lobby-desc"></p>
@@ -437,7 +474,10 @@
       <div class="panel-foot">
         <button id="btnLobbyStart" class="btn btn-primary" data-act="lobbyStart">START GAME</button>
         <p id="lobbyWait" class="lobby-wait">WAITING FOR THE HOST TO START…</p>
-        <button class="btn" data-act="skins">CHANGE SKIN</button>
+        <div class="menu-row">
+          <button class="btn" data-act="skins">CHANGE SKIN</button>
+          <button class="btn" data-act="pets">CHANGE PET</button>
+        </div>
         <button class="btn btn-ghost" data-act="leaveRoom">LEAVE ROOM</button>
       </div>
     </div>
@@ -487,6 +527,29 @@
           </div>
         </div>
         <div id="skinGrid" class="skin-grid"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== PETS ============================== -->
+  <section id="scrPets" class="screen overlay">
+    <div class="panel">
+      <div class="panel-head">
+        <button class="icon-btn" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <h2>PETS</h2>
+        <span id="petCount" class="trophy-count">6</span>
+      </div>
+      <div class="panel-body">
+        <div class="skin-stage pet-stage">
+          <div class="skin-preview"><i class="skin-aura"></i><div id="petPreview" class="pet-pic"></div></div>
+          <div class="skin-info">
+            <b id="petName">NO PET</b>
+            <p id="petDesc"></p>
+            <div id="petAbils" class="skin-abils"></div>
+            <span class="skin-note">Your pet follows your ship and uses its abilities on its own. In co-op everyone brings their own pet.</span>
+          </div>
+        </div>
+        <div id="petGrid" class="skin-grid pet-grid"></div>
       </div>
     </div>
   </section>
@@ -718,6 +781,7 @@
 <script src="audio.js"></script>
 <script src="input.js"></script>
 <script src="skins.js"></script>
+<script src="pets.js"></script>
 <script src="peerjs.min.js"></script>
 <script src="netconfig.js"></script>
 <script src="net.js"></script>

@@ -1,6 +1,6 @@
 # Space Mobs Shooter
 
-An arcade space shooter where you pilot a Phantom through endless waves of Minecraft-style mobs and face a new boss every fifth wave. Play alone or in online co-op with up to 3 friends. It runs in any modern browser on PC or phone and supports gamepads. It can also run as a desktop app.
+An arcade space shooter where you pilot a Phantom through waves of Minecraft-style mobs and bosses, with a pet at your side. There are three games (Arcade, Boss Rush and Village Raid), each playable in Classic or Hardcore. Play alone or in online co-op with up to 3 friends. It runs in any modern browser on PC or phone and supports gamepads. It can also run as a desktop app.
 
 Made by **MrGamerKing** · [YouTube](https://www.youtube.com/@MrGamerKingOfficial)
 
@@ -22,10 +22,18 @@ To skip the intro while testing, open `index.html#nointro`.
 
 ## Game modes
 
-Press **SINGLE PLAYER** and pick a mode:
+Press **SINGLE PLAYER**, pick a **game**, then pick **Classic** or **Hardcore**.
 
-- **Arcade:** choose the difficulty (Easy, Normal or Hard) and your starting hearts (1–10). After every boss your run is saved at a **checkpoint**. From the Arcade screen (or the **Continue** button on the main menu, or the game-over screen) you can continue from the last checkpoint with full hearts, or start a **New Game**. A new game asks you to confirm first, because it erases the checkpoint.
-- **Hardcore:** there are no saves: if you die, you start again from wave 1. The difficulty is always **Hard**, and you can never gain extra hearts beyond the ones you start with. Choose one of three challenges:
+**The three games:**
+
+- **Arcade:** endless waves of mobs with a boss every 5 waves. This is the original game, and it has a secret.
+- **Boss Rush:** no mobs, only bosses, all 11 back to back. Everyone starts with a level 3 gun. The faster you win a fight, the bigger the **speed bonus**. Finish all 11 for the **Boss Rusher** trophy... and something else comes for you. Then the bosses return as MK II.
+- **Village Raid:** a village with houses and villagers sits at the bottom of the screen. Each **raid** is four waves of illagers (pillagers, vindicators, witches, evokers and their vexes) and then a **raid captain** boss (the Ravager first, then the Illusioner, then the rest). Every raider that gets past you burns a house and damages the village (20 health). If the village falls, the run is over. Winning a raid earns the **Hero of the Village** trophy and repairs part of the village.
+
+**The two ways to play each game:**
+
+- **Classic:** choose the difficulty (Easy, Normal or Hard) and your starting hearts (1–10). After every boss your run is saved at a **checkpoint**. Each game has its own checkpoint. From the Classic screen (or the **Continue** button on the main menu, which shows your newest checkpoint, or the game-over screen) you can continue from the last checkpoint with full hearts, or start a **New Game**. A new game asks you to confirm first, because it erases that game's checkpoint.
+- **Hardcore:** there are no saves: if you die, you start again from the beginning. The difficulty is always **Hard**, and you can never gain extra hearts beyond the ones you start with. Choose one of three challenges:
 
 | Challenge | Hearts | Rules | Score bonus |
 | --- | --- | --- | --- |
@@ -33,7 +41,7 @@ Press **SINGLE PLAYER** and pick a mode:
 | Insane | 3 | Heart pickups heal you up to 3. A Totem of Undying revives you with 3 hearts. | ×1.5 |
 | Brutal | 1 | Hearts never drop, only Totems of Undying (which drop a little more often). A totem revives you with 1 heart. | ×2 |
 
-Beating a boss in each Hardcore challenge unlocks a trophy.
+Beating a boss in each Hardcore challenge unlocks a trophy. Best scores are kept separately for every game and challenge.
 
 ## Multiplayer (online co-op)
 
@@ -41,13 +49,13 @@ Up to 4 players can fight the waves and bosses together over the internet.
 
 1. One player presses **MULTIPLAYER → CREATE ROOM** and picks a room name, a username and a password.
 2. The others press **MULTIPLAYER → JOIN ROOM** and enter the same room name and password with their own username.
-3. In the lobby everyone sees the player list and each player's skin. The host sets the mode (**Arcade** with difficulty and hearts, or **Hardcore** with Extreme / Insane / Brutal) and the maximum number of players, can remove players, and presses **START GAME**.
+3. In the lobby everyone sees the player list with each player's skin and pet. The host picks the **game** (Arcade, Boss Rush or Village Raid), the mode (**Classic** with difficulty and hearts, or **Hardcore** with Extreme / Insane / Brutal) and the maximum number of players, can remove players, and presses **START GAME**. Players can still change their skin or pet in the lobby.
 
-In the game every ship keeps its own skin and a small name tag with its hearts. When a player loses a heart, a heart breaks above their ship; when they heal, a heart pops in.
+In the game every ship keeps its own skin, its own pet and a small name tag with its hearts. When a player loses a heart, a heart breaks above their ship; when they heal, a heart pops in.
 
 - Everyone keeps their own character's move and special. The team shares the score, combo, special meter and power-ups (overdrive, shield, magnet and so on). Weapon stars, hearts and totems go to whoever grabs them.
 - Mobs and bosses pick targets among the players, and their health grows with the size of the team.
-- A player who goes down can **spectate** their teammates (switching between them) or **leave**. In Arcade they warp back in at the start of the next wave. In Hardcore there are no respawns.
+- A player who goes down can **spectate** their teammates (switching between them) or **leave**. In Classic they warp back in at the start of the next wave (the next boss in Boss Rush). In Hardcore there are no respawns.
 - The run ends when the whole team is down. Everyone can then go **back to the lobby** and play again.
 - The pause menu doesn't stop a co-op game; it only opens the menu for you.
 - Co-op runs aren't saved as checkpoints. They go on the leaderboard with a **CO-OP** tag.
@@ -91,7 +99,7 @@ The shared world is shaped to suit everyone's screens. On a very different scree
 | Special attack (your character's own) | B / right click | Two-finger tap or the special button | X / Y / LB |
 | Pause | Esc / P | Pause button | Start |
 
-The Settings screen switches touch controls to a floating joystick or a left-handed layout. It also sets your Arcade starting hearts (1–10) and difficulty.
+The Settings screen switches touch controls to a floating joystick or a left-handed layout. It also sets your Classic starting hearts (1–10) and difficulty.
 
 ## Bosses
 
@@ -109,8 +117,11 @@ A boss arrives every 5 waves, and each has its own attacks:
 | 40 | The Illusioner | Mirror clones, evoker fangs, arrow rain, blindness |
 | 45 | Ghast Queen | Fireballs you can shoot back, crying rain, a scream |
 | 50 | Phantom Overlord | Dive bombs, phantom swarms, walls of wind |
+| 55 | **Wither Storm** | The final boss. It **keeps growing** the whole fight (faster in later phases). A tractor beam drags you toward it while blocks fly up from below, debris sprays, purple void beams and a command block surge |
 
-After wave 50 the bosses return as **MK II**, then **MK III**, and so on. Each return brings a new colour, more HP, more bullets, faster attacks and new moves.
+After wave 55 the bosses return as **MK II**, then **MK III**, and so on. Each return brings a new colour, more HP, more bullets, faster attacks and new moves.
+
+**The secret boss:** from wave 16 in Arcade, a pale face with glowing white eyes sometimes watches from the edge of the screen for a moment. Shoot it (with your own shots; explosions and specials don't count) and **Herobrine** comes. He teleports, calls down lightning (warning rings first), sends shadow copies of himself, stares with two white beams and turns the lights out so only his eyes are visible. He also appears after the full lap in Boss Rush. He shows as **???** in the boss list and trophies until you beat him.
 
 **How boss fights work:**
 
@@ -150,6 +161,21 @@ The two buttons in the corner show your character's icons. Your hitbox is the sa
 
 To change an ability, edit the character in `skins.js` (name, description, cooldown) and its behaviour in the "character abilities" part of `game.js`.
 
+## Pets
+
+Pick a pet on the **PETS** screen in the main menu (or in a co-op lobby). It follows your ship and uses **two abilities of its own**, automatically:
+
+| Pet | Role | Abilities |
+| --- | --- | --- |
+| Wolf | Hunter | **Pack Bite**: lunges at the nearest mob and bites it. **Loyal Rage**: when you get hurt, it bites faster and harder for 6 seconds |
+| Cat | Guardian | **Scare**: creepers and phantoms are afraid of cats and keep away from you. **Morning Gift**: brings you a random power-up every 40 seconds |
+| Bee | Stinger | **Poison Sting**: stings a mob every 2 seconds and poisons it for 4 seconds. **Hive Fury**: at your last heart it stings three times as fast |
+| Mini Allay | Collector | **Fetch**: flies out and brings you every pickup on screen. **Song**: the special meter fills 30% faster |
+| Frog | Gobbler | **Tongue Snap**: snatches an enemy bullet near you every 1.5 seconds. **Snack Time**: swallows small mobs (vexes, phantoms, tiny slimes) every 7 seconds |
+| Axolotl | Healer | **Regeneration**: while you are hurt, heals 1 heart every 40 seconds. **Bubble**: once per wave, dropping to your last heart puts you in a safe bubble for 3 seconds |
+
+Pets can't be hurt. In co-op everyone brings their own pet. Pet kills count toward the **Best Friend** trophy. Pets and their abilities are in `pets.js` and in the "pets" part of `game.js`.
+
 ## Features
 
 - Ten regular mobs:
@@ -163,6 +189,12 @@ To change an ability, edit the character in `skins.js` (name, description, coold
   - **Enderman:** teleports, dodges and lunges.
   - **Shulker:** armored while closed, fires homing bullets.
   - **Ghast:** fireballs you can shoot back.
+- Newer mobs:
+  - **Pillager** (from wave 4): a red laser sight follows you while it loads its crossbow, then a fast bolt. Every third shot is a 3-bolt Multishot. Pillagers also fly in patrols.
+  - **Witch** (from wave 6): lobs splash potions. A ring shows where each one lands: **Harming** hurts, **Poison** leaves a cloud, **Slowness** makes your ship heavy. She drinks a healing potion when hurt.
+  - **Breeze** (from wave 9): hops around the sky and fires wind charges that knock your ship back.
+  - **Piglin Brute** (from wave 12): very tough. It raises its golden axe (a dashed line shows where it will go) and charges.
+  - **Vindicator** (Village Raid only): an illager with an iron axe that charges like a brute.
 - Gold **elite** mobs from wave 7.
 - Mob health rises smoothly every wave. Your weapon also gets stronger with every boss you beat, so the game stays balanced.
 - Power-ups:
@@ -170,7 +202,8 @@ To change an ability, edit the character in `skins.js` (name, description, coold
   - Overdrive, shield, magnet and 2x score.
   - **Time Warp** (clock), **Thunderstorm** (trident), **Allay drones** and **Totem of Undying** (an extra life).
 - 11 characters, each with its own move and special attack (see **Skins**). The special meter recharges only from mobs **you** kill and from grazing bullets.
-- A combo multiplier up to x8, perfect-wave bonuses, 22 trophies and a local high-score board.
+- 6 pets, each with two abilities (see **Pets**).
+- A combo multiplier up to x8, perfect-wave bonuses, 27 trophies (one of them secret) and a local high-score board.
 - Four space zones, mobs that shatter into pieces, screen shake, slow motion, and music and sound effects generated in code.
 
 ## Files
@@ -180,12 +213,13 @@ Everything the game needs is in this one folder, with no subfolders:
 ```
 index.html     menus, HUD and screens
 game.css       all styling and animations
-settings.js    saved settings, high scores, Arcade checkpoint and Hardcore challenge rules
+settings.js    saved settings, high scores, the three games, Classic checkpoints and Hardcore challenge rules
 trophies.js    trophies (achievements)
 audio.js       generated sound effects and music (Web Audio)
 input.js       keyboard, mouse, touch gestures, joystick and gamepad
 skins.js       the 11 characters: looks, abilities and their button icons
-bosses.js      all 10 bosses and their attacks
+pets.js        the 6 pets and their abilities
+bosses.js      all 11 bosses plus the secret one, and their attacks
 game.js        game engine: rendering, mobs, waves, power-ups and particles
 intro.js       startup intro (VarexGames, Made in Pakistan, title screen) and the game logo
 net.js         online co-op: rooms, passwords (SHA-256), lobby, messages and relay (TURN) support
@@ -196,7 +230,7 @@ ui.js          menus, HUD updates, lobby and startup
 main.js        Electron entry point for the desktop app
 ```
 
-For testing, open the browser console: `Game.debug.boss(4)` jumps straight to the Ender Dragon, and `Game.debug.god()` makes you invincible. `Game.debug.autopilot('dodge')` lets a simple bot fly and dodge; in god mode, `Game.debug.info().botHits` counts the hearts you would have lost. In a co-op game, `Game.debug.players()` lists every ship and `Game.debug.hurtPid(2)` hurts player 2 (host only).
+For testing, open the browser console: `Game.debug.boss(4)` jumps straight to the Ender Dragon, `Game.debug.boss(11)` to the Wither Storm, `Game.debug.herobrine()` summons the secret boss, `Game.debug.killBoss()` defeats the current boss, and `Game.debug.god()` makes you invincible. `Game.start({ game: 'raid' })` starts a Village Raid (`'bossrush'` for Boss Rush), and `Game.debug.pet()` shows what your pet is doing. `Game.debug.autopilot('dodge')` lets a simple bot fly and dodge; in god mode, `Game.debug.info().botHits` counts the hearts you would have lost. In a co-op game, `Game.debug.players()` lists every ship and `Game.debug.hurtPid(2)` hurts player 2 (host only).
 
 ## Credits
 

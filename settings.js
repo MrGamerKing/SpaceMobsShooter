@@ -20,6 +20,7 @@ const Settings = (() => {
     hearts: 5,             // starting hearts, 1-10
     lefty: false,          // mirror touch buttons + joystick for left-handed play
     skin: 'phantom',       // player skin id (see skins.js)
+    pet: 'none',           // pet id (see pets.js)
   };
 
   const data = { ...defaults };
@@ -57,21 +58,60 @@ const HARDCORE_TIERS = [
   },
 ];
 
-/* Arcade checkpoint: saved after every boss so a run can be continued later. */
+/* The three games. Each one is played either CLASSIC (a checkpoint after every boss, any difficulty)
+   or HARDCORE (no saves, always Hard, one of the tiers above). */
+const GAMES = [
+  {
+    id: 'arcade', name: 'ARCADE', short: 'ARCADE', unit: 'WAVE',
+    desc: 'Endless waves of mobs with a boss every 5 waves. The original Space Mobs Shooter, with a secret or two.',
+    tags: ['ENDLESS WAVES', '11 BOSSES', 'SECRETS'],
+  },
+  {
+    id: 'bossrush', name: 'BOSS RUSH', short: 'RUSH', unit: 'BOSS',
+    desc: 'No mobs, only bosses: all 11 back to back. You start with a level 3 gun, and the faster you win a fight, the bigger the bonus.',
+    tags: ['BOSSES ONLY', 'SPEED BONUS', 'LV 3 START'],
+  },
+  {
+    id: 'raid', name: 'VILLAGE RAID', short: 'RAID', unit: 'RAID',
+    desc: 'Pillagers, vindicators, witches and evokers march on the village below. Every raider that gets past you burns it. Beat each raid captain to save the day.',
+    tags: ['DEFEND THE VILLAGE', 'ILLAGERS', 'RAID CAPTAINS'],
+  },
+];
+const gameOf = (id) => GAMES.find((g) => g.id === id) || GAMES[0];
+/** Leaderboard tag of a run: 'arcade', 'extreme' (Arcade Hardcore), 'bossrush', 'raid-brutal'... */
+const modeTag = (game, tier) => (!game || game === 'arcade' ? tier || 'arcade' : tier ? `${game}-${tier}` : game);
+
+/* Classic checkpoints: one per game, saved after every boss so a run can be continued later. */
 const Checkpoint = (() => {
-  const KEY = 'sms.checkpoint.v1';
-  let cp = null;
-  try { cp = JSON.parse(localStorage.getItem(KEY)); } catch (e) { /* ignore */ }
-  if (!cp || typeof cp.wave !== 'number') cp = null;
+  const key = (g) => (g && g !== 'arcade' ? `sms.checkpoint.${g}` : 'sms.checkpoint.v1');
+  const cache = {};
+  function load(g) {
+    if (!(g in cache)) {
+      let cp = null;
+      try { cp = JSON.parse(localStorage.getItem(key(g))); } catch (e) { /* ignore */ }
+      if (!cp || typeof cp.wave !== 'number') cp = null;
+      if (cp) cp.game = g;
+      cache[g] = cp;
+    }
+    return cache[g];
+  }
+  const copy = (cp) => (cp ? JSON.parse(JSON.stringify(cp)) : null);
   return {
-    get() { return cp ? JSON.parse(JSON.stringify(cp)) : null; },
+    get(g = 'arcade') { return copy(load(g)); },
     save(data) {
-      cp = data;
-      try { localStorage.setItem(KEY, JSON.stringify(cp)); } catch (e) { /* ignore */ }
+      const g = data.game || 'arcade';
+      cache[g] = data;
+      try { localStorage.setItem(key(g), JSON.stringify(data)); } catch (e) { /* ignore */ }
     },
-    clear() {
-      cp = null;
-      try { localStorage.removeItem(KEY); } catch (e) { /* ignore */ }
+    clear(g = 'arcade') {
+      cache[g] = null;
+      try { localStorage.removeItem(key(g)); } catch (e) { /* ignore */ }
+    },
+    /** The newest checkpoint of any game (for CONTINUE on the main menu). */
+    latest() {
+      let best = null;
+      for (const g of GAMES) { const cp = load(g.id); if (cp && (!best || (cp.date || 0) > (best.date || 0))) best = cp; }
+      return copy(best);
     },
   };
 })();
@@ -96,7 +136,7 @@ const Scores = (() => {
     best() { return list.length ? list[0].score : 0; },
     top(n = 5) { return list.slice(0, n); },
     lifetime() { return { ...life }; },
-    /** Best score and furthest wave for one mode ('arcade', 'extreme', 'insane', 'brutal'). */
+    /** Best score and furthest wave for one mode tag ('arcade', 'extreme', 'bossrush', 'raid-insane'... see modeTag). */
     bestFor(mode) { return life.best[mode] || null; },
     /** Adds a finished run. Returns its leaderboard index (or -1 if it didn't place). */
     submit(entry) {

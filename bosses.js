@@ -1,9 +1,10 @@
 /* =========================================================================
-   Bosses — ten bosses, one every 5 waves, in this order:
-     Warden · Wither · Elder Guardian · Ender Dragon · Ravager ·
-     Magma King · Blaze King · Illusioner · Ghast Queen · Phantom Overlord
-   After the tenth they return as MK II, MK III... with more bullets, faster
+   Bosses — eleven bosses, one every 5 waves, in this order:
+     Warden · Wither · Elder Guardian · Ender Dragon · Ravager · Magma King ·
+     Blaze King · Illusioner · Ghast Queen · Phantom Overlord · Wither Storm
+   After the eleventh they return as MK II, MK III... with more bullets, faster
    attacks, extra moves and a new colour. `mark` = which lap this is (1, 2, 3...).
+   Plus one secret boss (secret: true) that is not in the order: Herobrine.
 
    Difficulty scales every attack through `tier` (see K.tier): it grows with the
    boss phase, the lap (MK) and Hard mode, and adds bullets, waves and speed.
@@ -369,7 +370,7 @@ const BossKit = (K) => {
     music: 'wither', warning: 'THE WITHER IS RISING!!', entry: 'grow', phases: [0.5, 0.2], mouthY: -0.22, mouthColor: C.purple,
     intro: ['WITHER SKULLS · BLUE SKULLS · WITHER ARMOR', 'MK II · NEW: SKULL STORM · DIVE BOMBING · SKELETON ARMY', 'MK III · NEW: BLUE SKULL SWARM · TRIPLE RAGE NOVA'],
     phaseText: { 2: ['WITHER ARMOR', 'BULLETS DEAL HALF DAMAGE'], 3: ['WITHER RAGE!', 'DODGE THE SKULL NOVA'] },
-    ultName: 'WITHER STORM',
+    ultName: 'SKULL TEMPEST',
     desc: 'Three heads of exploding skulls and homing blue skulls. Grows armor at half health.',
     harassRate: 0.9,
     harass(e) {
@@ -1453,7 +1454,7 @@ const BossKit = (K) => {
     intro: ['PHANTOM SWARM · DIVE BOMBS · FEATHER STORM', 'MK II · NEW: INSOMNIA · QUAD WIND WALLS', 'MK III · NEW: FIVE-DIVE CHAIN · ENDLESS SWARM'],
     phaseText: { 2: ['INSOMNIA', 'THE SWARM GROWS'], 3: ['NIGHTMARE', 'THE FINAL DREAM'] },
     ultName: 'NIGHTMARE',
-    desc: 'The final boss. Chains dive bombs, calls phantom swarms and throws walls of wind with tiny gaps.',
+    desc: 'Lord of the sleepless sky. Chains dive bombs, calls phantom swarms and throws walls of wind with tiny gaps.',
     harassRate: 1.0,
     harass(e) { K.fan(e.x, e.y, 3, 0.16, sp(280, e), 'magic', C.red, true); },
     init(e) { e.swoop = null; e.flap = 0; },
@@ -1534,6 +1535,373 @@ const BossKit = (K) => {
     drawFx(e) { drawSwoop(e); },
   };
 
-  const ALL = { warden, wither, elder, dragon, ravager, magma, blazeking, illusioner, ghastqueen, phantomlord };
-  return { ALL, ORDER: Object.keys(ALL) };
+  // ================================================================ 11. WITHER STORM
+  // It never stops growing: its sprite and hitbox scale with e.grow, which creeps up all fight long
+  // (faster in later phases and whenever its tractor beam feeds it blocks).
+  const SHEADS = [[0, -0.33], [-0.3, -0.27], [0.3, -0.27]];
+  const stormCap = (e) => Math.min(e.mark >= 2 ? 1.85 : 1.7, (view.h * 0.46) / e.h);
+  const stormGrow = (e, amount) => { e.size = Math.min(stormCap(e), e.size + amount); };
+  function stormSkulls(e, lead) {
+    const g = e.grow;
+    const per = 1 + Math.min(3, Math.floor(T(e) / 2) + Math.floor((e.size - 1) * 3));
+    for (const [hx, hy] of SHEADS) K.fan(e.x + hx * e.w * g, e.y + hy * e.h * g, per, 0.13, sp(290, e), 'wskull', null, lead);
+    e.mouth = 0.3;
+    K.sfx('wshoot');
+  }
+  /** Flings the blocks it has swallowed: a spray that arcs down over the screen. */
+  function debrisSpray(e) {
+    const g = e.grow;
+    const n = 10 + T(e) * 3 + Math.floor((e.size - 1) * 10);
+    for (let i = 0; i < n; i++) {
+      const a = Math.PI * (0.08 + (0.84 * (i + rand(-0.3, 0.3))) / n);
+      const s = sp(rand(190, 290), e);
+      const b = K.eShoot(e.x + Math.cos(a) * e.w * 0.3 * g, e.y + e.h * 0.15 * g, Math.cos(a) * s, Math.sin(a) * s, 'block', pick(PAL.blocks));
+      b.g = 150 * view.vs;
+    }
+    K.sfx('explode', 1.4);
+    K.shake(0.3);
+  }
+  /** Tractor beam: a column that homes onto you, then drags you (and blocks from below) up into the storm. */
+  function startTractor(e, wide) {
+    const k = view.k;
+    e.pull = { t: 0, warn: wide ? 0.9 : 0.75, dur: wide ? 3.2 : 2.4, x: wide ? view.w / 2 : pl().x, w: wide ? view.w * 1.2 : (200 + T(e) * 16) * k * e.grow, wide: !!wide, dt: 0 };
+    K.sfx('storm');
+  }
+  function updateTractor(e, dt) {
+    const pu = e.pull;
+    const k = view.k;
+    pu.t += dt;
+    if (pu.t < pu.warn) {
+      if (!pu.wide) pu.x = damp(pu.x, pl().x, 3, dt);
+      return;
+    }
+    if (pu.t > pu.warn + pu.dur) { e.pull = null; return; }
+    const top = e.y + e.h * 0.25 * e.grow;
+    const force = (pu.wide ? 300 : 250) * k * (1 + (e.size - 1) * 0.5);
+    K.eachPlayer((p) => {
+      if (Math.abs(p.x - pu.x) < pu.w / 2 && p.y > top) K.dragPlayer(p, 0.3, e.x, e.y, force);
+    });
+    // blocks torn up from below fly up the beam (they hurt on the way, and feed the storm)
+    pu.dt -= dt;
+    if (pu.dt <= 0) {
+      pu.dt = Math.max(0.08, 0.2 - T(e) * 0.02);
+      const x = pu.x + rand(-0.42, 0.42) * pu.w;
+      const b = K.eShoot(x, view.h + 18 * k, (e.x - x) * 0.25, -sp(rand(300, 420), e), 'block', pick(PAL.blocks));
+      b.sucked = true;
+    }
+  }
+  const witherstorm = {
+    name: 'WITHER STORM', img: 'witherstorm', w: 270, h: 189, hp: 1700, hpw: 1.1, score: 22000, glow: C.purple, pal: PAL.storm,
+    music: 'wither', warning: 'THE WITHER STORM IS COMING!!', entry: 'grow', phases: [0.66, 0.33], mouthY: -0.33, mouthColor: C.purple,
+    intro: ['TRACTOR BEAM · DEBRIS · IT KEEPS GROWING', 'MK II · NEW: TRIPLE VOID BEAMS · COMMAND BLOCK SURGE', 'MK III · NEW: ENDLESS HUNGER'],
+    phaseText: { 2: ['IT HUNGERS', 'THE STORM GROWS FASTER'], 3: ['UNSTOPPABLE', 'FINISH IT BEFORE IT CONSUMES EVERYTHING'] },
+    ultName: 'CONSUME EVERYTHING',
+    desc: 'The final boss: a Wither gone wrong. Its tractor beam drags you in and rips blocks up from below, and it grows bigger and deadlier the longer it lives.',
+    harassRate: 1.05,
+    harass(e) {
+      e.head = ((e.head || 0) + 1) % 3;
+      const [hx, hy] = SHEADS[e.head];
+      K.fan(e.x + hx * e.w * e.grow, e.y + hy * e.h * e.grow, e.size > 1.35 ? 2 : 1, 0.12, sp(300, e), 'wskull', null, true);
+    },
+    init(e) { e.size = 1; e.pull = null; e.ty0 = e.ty; },
+    onFight(e) { K.explode(e.x, e.y, PAL.storm, 2.5, C.purple); K.flash('white'); },
+    onPhase(e, ph) {
+      stormGrow(e, 0.08);
+      K.sfx('storm');
+      rings(e, ph === 3 ? 2 : 1, 0.5, () => K.ring(e.x, e.y, 18 + T(e) * 3, sp(220, e), 'wskull'));
+    },
+    tick(e, dt) {
+      // it never stops growing — faster in later phases and when berserk
+      const rate = (e.phase === 3 ? 0.012 : e.phase === 2 ? 0.008 : 0.005) * (e.berserk ? 1.6 : 1) * (1 + (e.mark - 1) * 0.3);
+      stormGrow(e, rate * dt);
+      e.grow = damp(e.grow, e.size, 3, dt);
+      e.ty = e.ty0 - (e.grow - 1) * e.h * 0.18;
+      const tx = view.w / 2 + Math.sin(e.mt * 0.45) * Math.max(0, view.w / 2 - e.w * 0.5 * e.grow);
+      e.x = damp(e.x, tx, 1.4, dt);
+      e.y = damp(e.y, e.ty + Math.sin(e.mt * 1.2) * 12 * view.k, 2, dt);
+      e.rot = Math.sin(e.mt * 0.9) * 0.03;
+      if (e.pull) updateTractor(e, dt);
+      // blocks that reach it are swallowed, and it grows
+      for (const b of K.ebullets) {
+        if (b.sucked && !b.dead && b.vy < 0 && b.y < e.y + e.h * 0.3 * e.grow) { b.dead = true; stormGrow(e, 0.004); }
+      }
+      if (K.hiQ() && Math.random() < dt * 14) {
+        const a = rand(TAU);
+        const R = e.w * 0.55 * e.grow;
+        K.P(e.x + Math.cos(a) * R, e.y + Math.sin(a) * R * 0.6, -Math.cos(a) * 60 * view.k, -Math.sin(a) * 40 * view.k, 0.7, 9 * view.k, pick([C.purple, C.pink]), K.GLOW, 1);
+      }
+    },
+    busy: (e) => !!e.pull,
+    moves(e) {
+      const list = ['skulls', 'tractor', 'debris', 'skulls'];
+      if (e.phase >= 2) list.push('beam', 'surge', 'tractor');
+      if (e.phase >= 3) list.push('beam', 'debris', 'skulls');
+      if (e.mark >= 2) list.push('surge', 'beam');
+      return list;
+    },
+    attack(e, a) {
+      const t = T(e);
+      switch (a) {
+        case 'skulls': {
+          const n = 2 + (t >= 2 ? 1 : 0);
+          for (let i = 0; i < n; i++) later(e, i ? 0.32 : 0, () => stormSkulls(e, i % 2 === 1));
+          e.atk = 1.0;
+          break;
+        }
+        case 'tractor':
+          startTractor(e, false);
+          e.atk = 0.9;
+          break;
+        case 'debris':
+          rings(e, 1 + (t >= 3 ? 1 : 0), 0.6, debrisSpray);
+          e.atk = 1.1;
+          break;
+        case 'beam': {
+          const n = Math.min(3, 1 + (e.phase >= 3 ? 1 : 0) + (e.mark >= 2 ? 1 : 0));
+          for (let i = 0; i < n; i++) {
+            const x = n === 1 ? pl().x : (view.w * (i + 0.5)) / n + rand(-40, 40) * view.k;
+            e.beams.push(K.makeBeam(x, n === 1, false, 'void'));
+          }
+          e.mouth = 0.5;
+          e.atk = 1.2;
+          break;
+        }
+        case 'surge':
+          // the command block at its heart overloads
+          K.spiral(e, { time: 2.6, arms: 3 + (t >= 3 ? 1 : 0), twin: t >= 2, kind: 'magic', speed: 210, oy: 0.14, rate: 0.12 });
+          K.sfx('storm');
+          e.atk = 1.0;
+          break;
+        default:
+          break;
+      }
+    },
+    ultimate(e) {
+      ultBanner(e);
+      stormGrow(e, 0.15);
+      startTractor(e, true);
+      later(e, 0.9, () => K.ring(e.x, e.y, 24 + T(e) * 3, sp(220, e), 'wskull'));
+      later(e, 1.4, () => this.attack(e, 'beam'));
+    },
+    glowFx(e) {
+      const g = e.grow;
+      for (const [hx, hy] of SHEADS) K.glow(C.purple, e.x + hx * e.w * g, e.y + (hy + 0.02) * e.h * g, 30 * view.k * g, 0.4 + 0.25 * Math.sin(K.time() * 5 + hx * 5));
+      K.glow(C.orange, e.x, e.y + 0.14 * e.h * g, 42 * view.k * g, 0.45 + 0.3 * Math.sin(K.time() * 3));
+    },
+    /** Writhing tentacles of blocks under the body — longer as it grows. */
+    drawBack(e, sx) {
+      const ctx = K.ctx;
+      const k = view.k;
+      K.world();
+      ctx.globalAlpha = 1;
+      const n = 7;
+      const seg = Math.round(5 + (e.grow - 1) * 7);
+      const bw = 13 * k * sx;
+      const COLS = ['#3b2a4f', '#231a30', '#4a3a5e'];
+      for (let i = 0; i < n; i++) {
+        let x = e.x + (i - (n - 1) / 2) * e.w * 0.1 * sx;
+        let y = e.y + e.h * 0.28 * sx;
+        for (let j = 0; j < seg; j++) {
+          x += Math.sin(K.time() * 2.2 + i * 1.3 + j * 0.6) * 4 * k * sx + (i - (n - 1) / 2) * 1.6 * k * sx;
+          y += bw * 0.85;
+          const s = bw * (1 - j / (seg + 2));
+          ctx.fillStyle = COLS[(i + j) % 3];
+          ctx.fillRect(x - s / 2, y - s / 2, s, s);
+        }
+      }
+    },
+    /** The tractor beam: a warning outline while it aims, then a purple column with rings rushing up. */
+    drawFx(e) {
+      const pu = e.pull;
+      if (!pu) return;
+      const ctx = K.ctx;
+      const k = view.k;
+      K.world();
+      const top = e.y + e.h * 0.25 * e.grow;
+      const h = view.h + 20 - top;
+      const x0 = pu.x - pu.w / 2;
+      if (pu.t < pu.warn) {
+        ctx.globalAlpha = Math.sin(pu.t * 30) > 0 ? 0.85 : 0.35;
+        ctx.strokeStyle = '#c78bff';
+        ctx.lineWidth = 2 * k;
+        ctx.setLineDash([10 * k, 8 * k]);
+        ctx.strokeRect(x0, top, pu.w, h);
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+        return;
+      }
+      const f = Math.min(1, (pu.t - pu.warn) / 0.2, (pu.warn + pu.dur - pu.t) / 0.3);
+      ctx.globalCompositeOperation = 'lighter';
+      const g = ctx.createLinearGradient(x0, 0, x0 + pu.w, 0);
+      g.addColorStop(0, 'rgba(150,70,255,0)');
+      g.addColorStop(0.5, `rgba(170,100,255,${0.3 * f})`);
+      g.addColorStop(1, 'rgba(150,70,255,0)');
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = g;
+      ctx.fillRect(x0, top, pu.w, h);
+      ctx.strokeStyle = `rgba(225,190,255,${0.55 * f})`;
+      ctx.lineWidth = 2 * k;
+      for (let i = 0; i < 7; i++) {
+        const yy = top + ((((i / 7) * h - K.time() * 280 * k) % h) + h) % h;
+        ctx.beginPath();
+        ctx.ellipse(pu.x, yy, pu.w * 0.42, 7 * k, 0, 0, TAU);
+        ctx.stroke();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+    },
+  };
+
+  // ================================================================ secret: HEROBRINE
+  // Not in the usual order. From wave 16 on a face with white eyes sometimes watches from the edge of
+  // the screen for a moment — shoot it and he comes (see spawnSighting / herobrineWakes in game.js).
+  const HEYES = [[-0.25, 0.06], [0.25, 0.06]];
+  function heroBlink(e) {
+    const k = view.k;
+    K.burst(e.x, e.y, C.white, K.hiQ() ? 18 : 8, 260);
+    K.P(e.x, e.y, 0, 0, 0.4, 120 * k, C.white, K.RING);
+    let x = e.x;
+    for (let i = 0; i < 8; i++) {
+      x = rand(e.w * 0.6, view.w - e.w * 0.6);
+      if (Math.abs(x - e.x) > 160 * k) break;
+    }
+    e.x = x;
+    e.y = e.ty + rand(-30, 40) * k;
+    e.blinkT = 0.4;
+    K.burst(e.x, e.y, C.white, K.hiQ() ? 18 : 8, 260);
+    K.ring(e.x, e.y, 10 + T(e) * 2, sp(190, e), 'magic', C.white);
+    K.sfx('teleport');
+  }
+  /** Lightning: warning rings under each ship (and around it), then the strikes. */
+  function strikes(e, n) {
+    const k = view.k;
+    let first = true;
+    K.eachPlayer((p) => {
+      for (let i = 0; i < n; i++) {
+        const x = i === 0 ? p.x : clamp(p.x + rand(-230, 230) * k, 30 * k, view.w - 30 * k);
+        const y = i === 0 ? p.y : clamp(p.y + rand(-170, 120) * k, view.h * 0.3, view.h - 30 * k);
+        later(e, first ? 0 : 0.22, () => K.addHazard('strike', x, y, 58 * k, 0.25, 0.85));
+        first = false;
+      }
+    });
+  }
+  /** A wall of white soul fire falling from the sky, with a gap to slip through. */
+  function soulWall(e) {
+    const k = view.k;
+    const n = 13;
+    const gapW = T(e) >= 4 ? 2 : 3;
+    const gap = randi(1, n - gapW - 1);
+    for (let i = 0; i < n; i++) {
+      if (i >= gap && i < gap + gapW) continue;
+      K.eShoot(((i + 0.5) / n) * view.w, -12 * k, 0, K.bulletSpeed(150 + T(e) * 10), 'magic', C.white);
+    }
+    K.sfx('whisper');
+  }
+  const herobrine = {
+    secret: true,
+    name: 'HEROBRINE', img: 'herobrine', w: 190, h: 190, hp: 1500, hpw: 1.05, score: 30000, glow: C.white, pal: PAL.herobrine,
+    music: 'herobrine', warning: 'YOU SHOULD NOT HAVE DONE THAT', entry: 'grow', phases: [0.66, 0.33], mouthY: 0.3, mouthColor: C.white,
+    intro: ['HE WAS NEVER REMOVED', 'MK II · HE REMEMBERS YOU', 'MK III · THE MYTH IS REAL'],
+    phaseText: { 2: ['LIGHTS OUT', 'HE SEES YOU IN THE DARK'], 3: ['THE END IS NEAR', 'IT WAS NEVER A MYTH'] },
+    ultName: 'THE END IS NEAR',
+    desc: 'The secret boss. Teleports, calls down lightning, sends shadow copies of himself and turns off the lights.',
+    harassRate: 1.15,
+    harass(e) { K.fan(e.x, e.y + e.h * 0.06, e.phase >= 3 ? 3 : 2, 0.22, sp(250, e), 'hshot', null, true); },
+    init(e) { e.blinkT = 0; },
+    onFight(e) { K.flash('white'); K.sfx('thunder'); },
+    onPhase(e, ph) {
+      heroBlink(e);
+      if (ph >= 2) { K.setDark(4); K.sfx('darkness'); }
+    },
+    tick(e, dt) {
+      if (e.blinkT > 0) e.blinkT -= dt;
+      e.x = clamp(e.x + Math.sin(e.mt * 0.7) * 22 * view.k * dt, e.w * 0.6, view.w - e.w * 0.6);
+      e.y = damp(e.y, e.ty + Math.sin(e.mt * 1.1) * 10 * view.k, 3, dt);
+      e.rot = 0;
+      if (K.hiQ() && Math.random() < dt * 10) K.P(e.x + rand(-0.45, 0.45) * e.w, e.y + e.h * 0.45, 0, -30 * view.k, 0.8, 16 * view.k, C.smoke, K.SMOKE, 1);
+    },
+    busy: () => false,
+    moves(e) {
+      const list = ['blink', 'strike', 'souls'];
+      if (K.countType('hclone') < 3) list.push('clones');
+      if (e.phase >= 2) list.push('stare', 'dark', 'strike');
+      if (e.phase >= 3) list.push('wall', 'blink', 'stare');
+      if (e.mark >= 2) list.push('wall');
+      return list;
+    },
+    attack(e, a) {
+      const t = T(e);
+      const k = view.k;
+      switch (a) {
+        case 'blink':
+          heroBlink(e);
+          if (t >= 2) later(e, 0.6, () => heroBlink(e));
+          e.atk = 0.9;
+          break;
+        case 'strike':
+          strikes(e, 3 + Math.min(3, t));
+          K.sfx('thunder');
+          e.atk = 1.3;
+          break;
+        case 'souls': {
+          const n = 3 + Math.floor(t / 2);
+          for (let i = 0; i < n; i++) later(e, i ? 0.25 : 0, () => K.fan(e.x, e.y + e.h * 0.06, 2 + (t >= 3 ? 1 : 0), 0.28, sp(250, e), 'hshot'));
+          e.atk = 1.0;
+          break;
+        }
+        case 'clones': {
+          const n = 2 + (t >= 3 ? 1 : 0);
+          // they appear at their own spots (not inside his body, where all your shots are going)
+          for (let i = 0; i < n; i++) {
+            let x = e.x;
+            for (let j = 0; j < 6 && Math.abs(x - e.x) < e.w * 0.7; j++) x = clamp(rand(0.12, 0.88) * view.w, 60 * k, view.w - 60 * k);
+            const m = spawn('hclone', x, rand(0.14, 0.4) * view.h);
+            K.burst(m.x, m.y, C.white, K.hiQ() ? 12 : 6, 220);
+            K.P(m.x, m.y, 0, 0, 0.4, 70 * k, C.white, K.RING);
+          }
+          K.sfx('whisper');
+          e.atk = 1.2;
+          break;
+        }
+        case 'stare':
+          // two white beams from his eyes, following you
+          for (const s of [-1, 1]) e.beams.push(K.makeBeam(clamp(pl().x + s * 70 * k, 30 * k, view.w - 30 * k), true, false, 'soul'));
+          e.mouth = 0.5;
+          e.atk = 1.4;
+          break;
+        case 'dark':
+          K.setDark(4 + t * 0.5);
+          K.sfx('darkness');
+          later(e, 0.4, () => this.attack(e, 'souls'));
+          e.atk = 1.2;
+          break;
+        case 'wall':
+          rings(e, Math.min(4, 2 + Math.floor(t / 2)), 0.9, soulWall);
+          e.atk = 1.3;
+          break;
+        default:
+          break;
+      }
+    },
+    ultimate(e) {
+      ultBanner(e);
+      K.setDark(6);
+      strikes(e, 6);
+      later(e, 0.5, () => this.attack(e, 'clones'));
+      rings(e, 3, 0.9, soulWall);
+    },
+    pulse: (e) => (e.blinkT > 0 ? 1 : 0.3 + 0.2 * Math.sin(K.time() * 2)),
+    glowFx(e) { this.overDark(e); },
+    /** His eyes: drawn again on top of the darkness, so they are all you can see. */
+    overDark(e) {
+      const g = e.grow;
+      const a = (e.blinkT > 0 ? 1 : 0.75) + 0.25 * Math.sin(K.time() * 6);
+      for (const [hx, hy] of HEYES) {
+        K.glow(C.white, e.x + hx * e.w * g, e.y + hy * e.h * g, 22 * view.k * g, a);
+        K.glow(C.cyan, e.x + hx * e.w * g, e.y + hy * e.h * g, 52 * view.k * g, 0.3 * a);
+      }
+    },
+  };
+
+  const ALL = { warden, wither, elder, dragon, ravager, magma, blazeking, illusioner, ghastqueen, phantomlord, witherstorm, herobrine };
+  return { ALL, ORDER: Object.keys(ALL).filter((key) => !ALL[key].secret) };
 };

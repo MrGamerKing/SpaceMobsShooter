@@ -323,6 +323,13 @@ const Input = (() => {
       S.target.x = p.x;
       S.target.y = p.y;
     },
+    /** The ship was dragged by something: move the drag anchor with it so the finger keeps control. */
+    shift(dx, dy) {
+      if (!S.target || mouseSteer) return;
+      S.target.x += dx;
+      S.target.y += dy;
+      if (drag.id !== null) { drag.px += dx; drag.py += dy; }
+    },
     reset,
     get x() { return S.x; },
     get y() { return S.y; },

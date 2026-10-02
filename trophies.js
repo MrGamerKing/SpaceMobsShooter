@@ -10,7 +10,12 @@ const Trophies = (() => {
     { id: 'wither', name: 'WITHER SLAYER', desc: 'Defeat the Wither', icon: 'wither.png' },
     { id: 'dragon', name: 'THE END', desc: 'Defeat the Ender Dragon', icon: 'dragon.png' },
     { id: 'bosses5', name: 'BOSS HUNTER', desc: 'Defeat 5 different bosses (all runs)', icon: 'ravager.png' },
-    { id: 'bosses10', name: 'GRAND SLAM', desc: 'Defeat all 10 bosses (all runs)', icon: 'phantomlord.png' },
+    { id: 'bosses10', name: 'GRAND SLAM', desc: 'Defeat all 11 bosses (all runs)', icon: 'phantomlord.png' },
+    { id: 'witherstorm', name: 'STORM CHASER', desc: 'Defeat the Wither Storm', icon: 'witherstorm.png' },
+    { id: 'herobrine', name: 'MYTH BUSTED', desc: 'Find and defeat the secret boss', hint: 'Some say white eyes watch from the edge of the void after wave 15...', icon: 'herobrine.png', secret: true },
+    { id: 'bestfriend', name: 'BEST FRIEND', desc: 'Your pets defeat 50 mobs (all runs)', icon: 'pet_wolf.png' },
+    { id: 'bossrush', name: 'BOSS RUSHER', desc: 'Beat all 11 bosses in one Boss Rush', icon: 'crown.png' },
+    { id: 'hero', name: 'HERO OF THE VILLAGE', desc: 'Win a Village Raid (defeat a raid captain)', icon: 'vindicator.png' },
     { id: 'flawless', name: 'FLAWLESS', desc: 'Beat a boss without taking damage', icon: 'heart.png' },
     { id: 'maxpower', name: 'MAX POWER', desc: 'Reach weapon level 5', icon: 'upcharge4.png' },
     { id: 'graze', name: 'GRAZE KING', desc: 'Graze 100 bullets in one run', icon: 'scoreinc.png' },
@@ -27,8 +32,10 @@ const Trophies = (() => {
     { id: 'insane', name: 'INSANITY', desc: 'Defeat a boss in Hardcore Insane', icon: 'illusioner.png' },
     { id: 'brutal', name: 'BRUTAL LEGEND', desc: 'Defeat a boss in Hardcore Brutal (one heart!)', icon: 'wskull.png' },
   ];
-  const COUNTERS = { elites: ['elite', 25], slimes: ['slimes', 60] };
+  const COUNTERS = { elites: ['elite', 25], slimes: ['slimes', 60], petkills: ['bestfriend', 50] };
   const ALL_PICKUPS = 11;
+  const ALL_BOSSES = 11; // the secret boss doesn't count
+  const regular = () => (data.bosses || []).filter((b) => b !== 'herobrine').length;
 
   let data = { unlocked: {}, counters: {}, collected: [], bosses: [] };
   try { data = Object.assign(data, JSON.parse(localStorage.getItem(KEY)) || {}); } catch (e) { /* ignore */ }
@@ -70,13 +77,14 @@ const Trophies = (() => {
       if (LIST.some((t) => t.id === kind)) unlock(kind);
       if (!data.bosses) data.bosses = [];
       if (!data.bosses.includes(kind)) data.bosses.push(kind);
-      if (data.bosses.length >= 5) unlock('bosses5');
-      if (data.bosses.length >= 10) unlock('bosses10');
+      if (regular() >= 5) unlock('bosses5');
+      if (regular() >= ALL_BOSSES) unlock('bosses10');
       save();
     },
     progress(id) {
-      if (id === 'bosses5' || id === 'bosses10') return `${Math.min(id === 'bosses5' ? 5 : 10, (data.bosses || []).length)}/${id === 'bosses5' ? 5 : 10}`;
+      if (id === 'bosses5' || id === 'bosses10') { const n = id === 'bosses5' ? 5 : ALL_BOSSES; return `${Math.min(n, regular())}/${n}`; }
       if (id === 'elite') return `${Math.min(25, data.counters.elites || 0)}/25`;
+      if (id === 'bestfriend') return `${Math.min(50, data.counters.petkills || 0)}/50`;
       if (id === 'slimes') return `${Math.min(60, data.counters.slimes || 0)}/60`;
       if (id === 'collector') return `${data.collected.length}/${ALL_PICKUPS}`;
       return '';

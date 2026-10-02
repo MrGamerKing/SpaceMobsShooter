@@ -11,7 +11,7 @@
      the password with a second fingerprint.
    ========================================================================= */
 const Net = (() => {
-  const VERSION = 1;
+  const VERSION = 2;
   const PREFIX = 'spacemobs-room-';
   const MAX_ROSTER = 4;
   const TIMEOUT = 15000;
@@ -65,11 +65,12 @@ const Net = (() => {
   const cleanName = (s) => clean(s, 12);
   const cleanRoom = (s) => clean(s, 20);
   const roomKey = (s) => cleanRoom(s).toLowerCase();
-  const DEFAULTS = { mode: 'arcade', diff: 'normal', hearts: 5, tier: 'extreme', max: 4 };
+  const DEFAULTS = { game: 'arcade', mode: 'classic', diff: 'normal', hearts: 5, tier: 'extreme', max: 4 };
   function cleanSettings(s) {
     const o = { ...DEFAULTS, ...(s || {}) };
     return {
-      mode: o.mode === 'hardcore' ? 'hardcore' : 'arcade',
+      game: ['arcade', 'bossrush', 'raid'].includes(o.game) ? o.game : 'arcade',
+      mode: o.mode === 'hardcore' ? 'hardcore' : 'classic',
       diff: ['easy', 'normal', 'hard'].includes(o.diff) ? o.diff : 'normal',
       hearts: Math.max(1, Math.min(10, Math.round(+o.hearts) || 5)),
       tier: ['extreme', 'insane', 'brutal'].includes(o.tier) ? o.tier : 'extreme',
@@ -77,6 +78,7 @@ const Net = (() => {
     };
   }
   const validSkin = (id) => (typeof SKINS !== 'undefined' && SKINS.some((s) => s.id === id) ? id : 'phantom');
+  const validPet = (id) => (typeof PETS !== 'undefined' && PETS.some((p) => p.id === id) ? id : 'none');
   // screen shape (width / height): the shared world is shaped to suit everyone's screens
   const screenAr = () => +(window.innerWidth / Math.max(1, window.innerHeight)).toFixed(3);
   const validAr = (a) => (typeof a === 'number' && Number.isFinite(a) ? Math.max(0.3, Math.min(3, a)) : 1.6);
@@ -242,7 +244,7 @@ const Net = (() => {
   }
   function nextPid() { for (let p = 2; p <= MAX_ROSTER; p++) if (!roster.some((r) => r.pid === p)) return p; return 0; }
 
-  async function create({ room: roomName, name, password, skin }) {
+  async function create({ room: roomName, name, password, skin, pet }) {
     reset();
     const nm = cleanName(name) || 'PLAYER';
     room = cleanRoom(roomName);
@@ -251,7 +253,7 @@ const Net = (() => {
     role = 'host';
     phase = 'lobby';
     myPid = 1;
-    roster = [{ pid: 1, name: nm, skin: validSkin(skin), host: true, ping: 0, ar: screenAr() }];
+    roster = [{ pid: 1, name: nm, skin: validSkin(skin), pet: validPet(pet), host: true, ping: 0, ar: screenAr() }];
     settings = cleanSettings(settings);
     peer.on('connection', onGuestConnection);
     peer.on('error', (err) => { if (err && err.type !== 'peer-unavailable') emit('warn', mapPeerError(err).code); });
@@ -275,7 +277,7 @@ const Net = (() => {
         pid = nextPid();
         if (!pid) { reject('full'); return; }
         clearTimeout(helloTimer);
-        const entry = { pid, name: uniqueName(cleanName(m.name) || 'PLAYER'), skin: validSkin(m.skin), host: false, ping: 0, ar: validAr(m.ar) };
+        const entry = { pid, name: uniqueName(cleanName(m.name) || 'PLAYER'), skin: validSkin(m.skin), pet: validPet(m.pet), host: false, ping: 0, ar: validAr(m.ar) };
         roster.push(entry);
         guests.set(pid, { conn, last: now(), n: 0, t0: now() });
         safeSend(conn, { t: 'welcome', v: VERSION, pid, room });
@@ -303,6 +305,9 @@ const Net = (() => {
         break;
       case 'skin':
         if (r && phase === 'lobby') { r.skin = validSkin(m.skin); broadcastLobby(); }
+        break;
+      case 'pet':
+        if (r && phase === 'lobby') { r.pet = validPet(m.pet); broadcastLobby(); }
         break;
       case 'bye':
         drop(pid, 'left');
@@ -357,7 +362,7 @@ const Net = (() => {
   function sendTo(pid, msg) { const g = guests.get(pid); if (g) safeSend(g.conn, msg); }
 
   // ------------------------------------------------------------ guest
-  async function join({ room: roomName, name, password, skin }) {
+  async function join({ room: roomName, name, password, skin, pet }) {
     reset();
     const nm = cleanName(name) || 'PLAYER';
     token = joinToken(roomName, password);
@@ -380,7 +385,7 @@ const Net = (() => {
       hostConn = conn;
       const pc = conn.peerConnection;
       if (pc && pc.addEventListener) pc.addEventListener('iceconnectionstatechange', () => { if (pc.iceConnectionState === 'failed') finish(natFail()); });
-      conn.on('open', () => safeSend(conn, { t: 'hello', v: VERSION, name: nm, skin: validSkin(skin), token, ar: screenAr() }));
+      conn.on('open', () => safeSend(conn, { t: 'hello', v: VERSION, name: nm, skin: validSkin(skin), pet: validPet(pet), token, ar: screenAr() }));
       conn.on('data', (m) => {
         if (!m || typeof m !== 'object') return;
         hostLast = now();
@@ -411,7 +416,7 @@ const Net = (() => {
       case 'lobby':
         phase = m.phase === 'game' ? 'game' : 'lobby';
         room = cleanRoom(m.room) || room;
-        roster = Array.isArray(m.roster) ? m.roster.slice(0, MAX_ROSTER).map((r) => ({ pid: r.pid | 0, name: cleanName(r.name) || 'PLAYER', skin: validSkin(r.skin), host: !!r.host, ping: r.ping | 0, ar: validAr(r.ar) })) : roster;
+        roster = Array.isArray(m.roster) ? m.roster.slice(0, MAX_ROSTER).map((r) => ({ pid: r.pid | 0, name: cleanName(r.name) || 'PLAYER', skin: validSkin(r.skin), pet: validPet(r.pet), host: !!r.host, ping: r.ping | 0, ar: validAr(r.ar) })) : roster;
         settings = cleanSettings(m.settings);
         emit('lobby');
         break;
@@ -446,6 +451,13 @@ const Net = (() => {
     if (role === 'guest') send({ t: 'skin', skin: id });
     else if (role === 'host' && phase === 'lobby') broadcastLobby();
   }
+  function setPet(pet) {
+    const id = validPet(pet);
+    const r = roster.find((x) => x.pid === myPid);
+    if (r) r.pet = id;
+    if (role === 'guest') send({ t: 'pet', pet: id });
+    else if (role === 'host' && phase === 'lobby') broadcastLobby();
+  }
 
   // ------------------------------------------------------------ both
   function leave() {
@@ -474,7 +486,7 @@ const Net = (() => {
 
   return {
     VERSION, COLORS,
-    create, join, leave, kick, setSettings, setSkin, startGame, backToLobby,
+    create, join, leave, kick, setSettings, setSkin, setPet, startGame, backToLobby,
     send, broadcast, sendTo, on,
     sha256, cleanName, cleanRoom, testRelay,
     /** How many relay servers this device will use (0 = direct connections only). */

@@ -19,12 +19,12 @@ const UI = (() => {
 
   const screens = {
     menu: $('scrMenu'), how: $('scrHow'), settings: $('scrSettings'), about: $('scrAbout'),
-    trophies: $('scrTrophies'), skins: $('scrSkins'), pause: $('scrPause'), over: $('scrOver'),
-    modes: $('scrModes'), arcade: $('scrArcade'), hardcore: $('scrHardcore'),
+    trophies: $('scrTrophies'), skins: $('scrSkins'), pets: $('scrPets'), pause: $('scrPause'), over: $('scrOver'),
+    modes: $('scrModes'), variant: $('scrVariant'), arcade: $('scrArcade'), hardcore: $('scrHardcore'),
     mp: $('scrMp'), create: $('scrCreate'), join: $('scrJoin'), lobby: $('scrLobby'), down: $('scrDown'), netMsg: $('scrNetMsg'),
     relay: $('scrRelay'),
   };
-  const SUB_SCREENS = ['how', 'settings', 'about', 'trophies', 'skins', 'modes', 'arcade', 'hardcore', 'mp', 'create', 'join', 'relay'];
+  const SUB_SCREENS = ['how', 'settings', 'about', 'trophies', 'skins', 'pets', 'modes', 'variant', 'arcade', 'hardcore', 'mp', 'create', 'join', 'relay'];
   const TIER = Object.fromEntries(HARDCORE_TIERS.map((t) => [t.id, t]));
   const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
   const els = {
@@ -61,17 +61,19 @@ const UI = (() => {
   function open(name) {
     if (name === 'trophies') renderTrophies();
     if (name === 'skins') renderSkins();
+    if (name === 'pets') renderPets();
     if (name === 'modes') renderModes();
+    if (name === 'variant') renderVariant();
     if (name === 'arcade') renderArcade();
     if (name === 'hardcore') renderHardcore();
     if (name === 'relay') renderRelay();
     if (name === 'mp') renderRelayLine();
     stack.push(current);
     show(name);
-    if (name === 'skins' && keyNav) {
+    if ((name === 'skins' || name === 'pets') && keyNav) {
       setTimeout(() => {
-        const on = $('skinGrid').querySelector('.skin.on');
-        if (on && current === 'skins') on.focus({ preventScroll: true });
+        const on = $(name === 'skins' ? 'skinGrid' : 'petGrid').querySelector('.skin.on');
+        if (on && current === name) on.focus({ preventScroll: true });
       }, 100);
     }
   }
@@ -85,9 +87,9 @@ const UI = (() => {
     $('menuBest').textContent = fmt(Scores.best());
     $('menuRuns').textContent = fmt(life.runs);
     $('menuTrophies').textContent = `${Trophies.count()}/${Trophies.LIST.length}`;
-    const cp = Checkpoint.get();
+    const cp = Checkpoint.latest();
     $('menuModeLine').innerHTML = cp
-      ? `<button class="mode-pill" data-act="continue">▶ CONTINUE ARCADE · WAVE ${cp.wave}</button>`
+      ? `<button class="mode-pill" data-act="continueLatest">▶ CONTINUE ${gameOf(cp.game).name} · ${cpWhere(cp)}</button>`
       : '';
   }
 
@@ -111,20 +113,25 @@ const UI = (() => {
   }
   function syncMute() { $('btnMute').innerHTML = Sfx.muted ? SVG.muted : SVG.sound; }
 
-  /** opts: { mode: 'arcade' | 'hardcore', tier, checkpoint } (see Game.start) */
+  /** opts: { game, mode: 'classic' | 'hardcore', tier, checkpoint } (see Game.start) */
   function startGame(opts) {
     Sfx.unlock();
     stack = [];
     show(null);
     if (Settings.isTouch && !document.fullscreenElement) requestFs();
-    Game.start(opts || { mode: 'arcade' });
+    Game.start(opts || { game: 'arcade', mode: 'classic' });
   }
-  /** Play the same kind of run again: Hardcore restarts the tier, Arcade goes back to the last checkpoint. */
+  /** Play the same kind of run again: Hardcore restarts the tier, Classic goes back to the game's last checkpoint. */
   function retry() {
     const r = Game.run;
-    if (r.mode === 'hardcore') { startGame({ mode: 'hardcore', tier: r.tier }); return; }
-    const cp = Checkpoint.get();
-    startGame(cp ? { mode: 'arcade', checkpoint: cp } : { mode: 'arcade' });
+    if (r.mode === 'hardcore') { startGame({ game: r.game, mode: 'hardcore', tier: r.tier }); return; }
+    const cp = Checkpoint.get(r.game);
+    startGame(cp ? { game: r.game, mode: 'classic', checkpoint: cp } : { game: r.game, mode: 'classic' });
+  }
+  /** Where a checkpoint stands, in the words of its game: WAVE 11 · BOSS 4 · RAID 3. */
+  function cpWhere(cp) {
+    const g = gameOf(cp.game);
+    return `${g.unit} ${cp.game === 'raid' ? Math.ceil(cp.wave / 5) : cp.wave}`;
   }
 
   const skinOf = (id) => (typeof SKINS !== 'undefined' && (SKINS.find((s) => s.id === id) || SKINS[0])) || null;
@@ -163,21 +170,27 @@ const UI = (() => {
     refreshMenu();
   }
 
+  let pickedGame = 'arcade'; // the game chosen on the SELECT GAME screen
   let resetArmed = 0;
   let newArmed = 0;
   let specOn = false;
   const actions = {
     play: () => open('modes'),
-    arcade: () => open('arcade'),
+    game: (btn) => { pickedGame = btn.dataset.game; open('variant'); },
+    classic: () => open('arcade'),
     hardcore: () => open('hardcore'),
-    tier: (btn) => startGame({ mode: 'hardcore', tier: btn.dataset.tier }),
+    tier: (btn) => startGame({ game: pickedGame, mode: 'hardcore', tier: btn.dataset.tier }),
     continue: () => {
-      const cp = Checkpoint.get();
-      if (cp) startGame({ mode: 'arcade', checkpoint: cp });
+      const cp = Checkpoint.get(pickedGame);
+      if (cp) startGame({ game: pickedGame, mode: 'classic', checkpoint: cp });
+    },
+    continueLatest: () => {
+      const cp = Checkpoint.latest();
+      if (cp) startGame({ game: cp.game, mode: 'classic', checkpoint: cp });
     },
     newgame: (btn) => {
       // starting over erases the checkpoint, so ask once
-      if (Checkpoint.get() && Date.now() - newArmed > 2500) {
+      if (Checkpoint.get(pickedGame) && Date.now() - newArmed > 2500) {
         newArmed = Date.now();
         btn.textContent = 'ERASE CHECKPOINT & START?';
         btn.classList.add('armed');
@@ -185,8 +198,8 @@ const UI = (() => {
         return;
       }
       newArmed = 0;
-      Checkpoint.clear();
-      startGame({ mode: 'arcade' });
+      Checkpoint.clear(pickedGame);
+      startGame({ game: pickedGame, mode: 'classic' });
     },
     restart: retry,
     how: () => open('how'),
@@ -194,6 +207,7 @@ const UI = (() => {
     about: () => open('about'),
     trophies: () => open('trophies'),
     skins: () => open('skins'),
+    pets: () => open('pets'),
     back,
     resume: () => Game.resume(),
     menu: () => { leaveGame(); show('menu'); },
@@ -259,7 +273,7 @@ const UI = (() => {
   };
 
   // ================================================================ HUD
-  const shown = { score: -1, comboOn: false, mult: 0, combo: -1, hp: -1, maxHp: -1, weapon: -1, power: -1, wave: -1, low: false, prog: -2, totem: null, warp: false, spec: '', skin: '' };
+  const shown = { score: -1, comboOn: false, mult: 0, combo: -1, hp: -1, maxHp: -1, weapon: -1, power: -1, wave: -1, low: false, prog: -2, totem: null, warp: false, spec: '', skin: '', village: -2 };
   let dispScore = 0;
   let lastScore = 0;
   let lastBump = 0;
@@ -395,7 +409,23 @@ const UI = (() => {
     if (h.wave !== shown.wave) {
       shown.wave = h.wave;
       const tag = h.tier && TIER[h.tier] ? ` <i class="hud-tier ${h.tier}">☠ ${TIER[h.tier].name}</i>` : '';
-      els.wave.innerHTML = (h.wave > 0 ? `WAVE <b>${h.wave}</b>` : 'GET READY') + tag;
+      let txt = `WAVE <b>${h.wave}</b>`;
+      if (h.game === 'bossrush') txt = `BOSS <b>${h.wave}</b>`;
+      else if (h.game === 'raid') { const w = ((h.wave - 1) % 5) + 1; txt = `RAID <b>${Math.ceil(h.wave / 5)}</b> · ${w === 5 ? 'CAPTAIN' : `WAVE ${w}/4`}`; }
+      els.wave.innerHTML = (h.wave > 0 ? txt : 'GET READY') + tag;
+    }
+    // Village Raid: the village's health
+    const vil = h.village >= 0 ? Math.round(h.village * 100) / 100 : -1;
+    if (vil !== shown.village) {
+      const hit = vil >= 0 && shown.village >= 0 && vil < shown.village;
+      shown.village = vil;
+      $('hudVillage').classList.toggle('hidden', vil < 0);
+      if (vil >= 0) {
+        $('villageFill').style.transform = `scaleX(${vil})`;
+        $('villageHp').textContent = h.villageHp;
+        $('hudVillage').classList.toggle('low', vil <= 0.3);
+        if (hit) retrigger($('hudVillage'), 'hit');
+      }
     }
     const prog = h.waveProg < 0 ? -1 : Math.round(h.waveProg * 100) / 100;
     if (prog !== shown.prog) {
@@ -540,7 +570,7 @@ const UI = (() => {
     show(null);
     els.hearts.innerHTML = '';
     for (const key in chips) { chips[key].remove(); delete chips[key]; }
-    Object.assign(shown, { score: -1, comboOn: false, mult: 0, combo: -1, hp: -1, maxHp: -1, weapon: -1, power: -1, wave: -1, low: false, prog: -2, totem: null, warp: false, spec: '', skin: '' });
+    Object.assign(shown, { score: -1, comboOn: false, mult: 0, combo: -1, hp: -1, maxHp: -1, weapon: -1, power: -1, wave: -1, low: false, prog: -2, totem: null, warp: false, spec: '', skin: '', village: -2 });
     dispScore = 0;
     lastScore = 0;
     els.combo.classList.remove('on');
@@ -559,9 +589,10 @@ const UI = (() => {
     $('pauseWave').textContent = info.wave || 1;
     $('pauseScore').textContent = fmt(info.score);
     const hc = info.mode === 'hardcore' && TIER[info.tier];
-    $('pauseDiff').textContent = `${info.mp ? 'CO-OP · ' : ''}${hc ? `☠ ${hc.name}` : DIFF_LABEL[info.difficulty] || 'NORMAL'} · ${info.hearts}♥`;
-    const cp = !hc && !info.mp && Checkpoint.get();
-    $('btnRestart').textContent = hc ? 'RESTART FROM WAVE 1' : cp ? `LAST CHECKPOINT · WAVE ${cp.wave}` : 'RESTART';
+    const g = gameOf(info.game);
+    $('pauseDiff').textContent = `${info.mp ? 'CO-OP · ' : ''}${g.id !== 'arcade' ? g.short + ' · ' : ''}${hc ? `☠ ${hc.name}` : DIFF_LABEL[info.difficulty] || 'NORMAL'} · ${info.hearts}♥`;
+    const cp = !hc && !info.mp && Checkpoint.get(info.game);
+    $('btnRestart').textContent = hc ? 'START OVER' : cp ? `LAST CHECKPOINT · ${cpWhere(cp)}` : 'RESTART';
     // co-op: the run belongs to the whole team, so there's no restart, only leaving
     $('btnRestart').classList.toggle('hidden', !!info.mp);
     $('btnPauseMenu').textContent = info.mp ? 'LEAVE GAME' : 'MAIN MENU';
@@ -615,15 +646,17 @@ const UI = (() => {
     const mins = Math.floor(r.time / 60);
     const secs = String(Math.floor(r.time % 60)).padStart(2, '0');
     const hc = r.mode === 'hardcore' && TIER[r.tier];
+    const g = gameOf(r.game);
+    const where = cpWhere({ game: g.id, wave: r.wave }).split(' ');
     const stats = [
-      ['WAVE', r.wave], ['MOBS', fmt(r.kills)], ['BOSSES', r.bosses],
+      [where[0], where[1]], [g.id === 'bossrush' ? 'GAME' : 'MOBS', g.id === 'bossrush' ? 'RUSH' : fmt(r.kills)], ['BOSSES', r.bosses],
       ['MAX COMBO', r.maxCombo], ['TIME', `${mins}:${secs}`], ['MODE', hc ? '☠ ' + hc.name : DIFF_LABEL[r.difficulty] || 'NORMAL'],
     ];
-    $('overPrimary').textContent = r.mp ? 'BACK TO LOBBY' : hc ? 'TRY AGAIN' : r.checkpoint ? `CONTINUE · WAVE ${r.checkpoint.wave}` : 'PLAY AGAIN';
+    $('overPrimary').textContent = r.mp ? 'BACK TO LOBBY' : hc ? 'TRY AGAIN' : r.checkpoint ? `CONTINUE · ${cpWhere(r.checkpoint)}` : 'PLAY AGAIN';
     $('overPrimary').dataset.act = r.mp ? 'lobbyBack' : 'restart';
     $('overSecondary').textContent = r.mp ? 'LEAVE ROOM' : 'MAIN MENU';
     $('overSecondary').dataset.act = r.mp ? 'leaveRoom' : 'menu';
-    $('scrOver').querySelector('.over-title').textContent = r.mp ? 'TEAM WIPED OUT' : 'SHIP DESTROYED';
+    $('scrOver').querySelector('.over-title').textContent = r.fell ? 'VILLAGE LOST' : r.mp ? 'TEAM WIPED OUT' : 'SHIP DESTROYED';
     specOn = false;
     hideSpec();
     $('overStats').innerHTML = stats.map(([l, v], i) => `<div class="stat" style="--i:${i}"><small>${l}</small><b>${v}</b></div>`).join('');
@@ -631,9 +664,12 @@ const UI = (() => {
     $('overTrophies').innerHTML = r.trophies.map((t, i) => `<span style="animation-delay:${400 + i * 90}ms"><img src="${t.icon}" alt="">${t.name}</span>`).join('');
     $('overBoard').innerHTML = r.top.length
       ? r.top.map((e, i) => {
-        const t = TIER[e.mode];
+        // tags look like 'arcade', 'extreme', 'bossrush', 'raid-insane' (see modeTag)
+        const [ga, ti] = e.mode && e.mode.includes('-') ? e.mode.split('-') : GAMES.some((x) => x.id === e.mode) ? [e.mode, null] : ['arcade', e.mode];
+        const t = TIER[ti];
+        const pre = ga !== 'arcade' ? `${gameOf(ga).short} ` : '';
         const tag = e.mode === 'coop' ? '<span class="dtag coop">CO-OP</span>'
-          : t ? `<span class="dtag hc ${t.id}">☠${t.name}</span>` : `<span class="dtag ${e.diff || 'normal'}">${(DIFF_LABEL[e.diff] || 'NORMAL').slice(0, 4)}</span>`;
+          : t ? `<span class="dtag hc ${t.id}">${pre}☠${pre ? t.name.slice(0, 3) : t.name}</span>` : `<span class="dtag ${e.diff || 'normal'}">${pre}${(DIFF_LABEL[e.diff] || 'NORMAL').slice(0, 4)}</span>`;
         return `<li class="${e === r.entry ? 'me' : ''}"><span>#${i + 1}</span><span>${fmt(e.score)}</span>${tag}<span>W${e.wave}</span></li>`;
       }).join('')
       : '<li class="empty">NO SCORES YET</li>';
@@ -650,17 +686,40 @@ const UI = (() => {
     $('trophyGrid').innerHTML = Trophies.LIST.map((t) => {
       const got = Trophies.has(t.id);
       const prog = got ? '' : Trophies.progress(t.id);
-      return `<div class="trophy ${got ? 'got' : 'locked'}"><img src="${t.icon}" alt=""><div><b>${got ? '★ ' : ''}${t.name}</b><p>${t.desc}</p>${prog ? `<small>${prog}</small>` : ''}</div></div>`;
+      // secret trophies stay hidden until you earn them
+      const hide = t.secret && !got;
+      return `<div class="trophy ${got ? 'got' : 'locked'}${hide ? ' secret' : ''}"><img src="${t.icon}" alt=""><div><b>${got ? '★ ' : ''}${hide ? '???' : t.name}</b><p>${hide ? t.hint : t.desc}</p>${prog ? `<small>${prog}</small>` : ''}</div></div>`;
     }).join('');
   }
   // ================================================================ modes
+  // SELECT GAME (Arcade / Boss Rush / Village Raid) → CLASSIC or HARDCORE → checkpoint / tier
+  const GAME_IC = {
+    arcade: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h4v4H4zM10 4h4v4h-4zM16 4h4v4h-4zM7 10h4v4H7zM13 10h4v4h-4z" opacity=".55"/><path d="M12 15l5 6H7z"/></svg>',
+    bossrush: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 7l4.5 3.5L12 4l4.5 6.5L21 7l-2 11H5z"/><rect x="5" y="19" width="14" height="2" rx="1"/></svg>',
+    raid: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 2 11h3v9h5v-6h4v6h5v-9h3z"/></svg>',
+  };
   function renderModes() {
-    const cp = Checkpoint.get();
-    $('modeArcadeFoot').textContent = cp ? `⚑ CHECKPOINT · WAVE ${cp.wave} · ${fmt(cp.score)} PTS` : 'NO CHECKPOINT YET';
+    $('gameGrid').innerHTML = GAMES.map((g, i) => {
+      const cp = Checkpoint.get(g.id);
+      const best = Scores.bestFor(modeTag(g.id, null));
+      const foot = cp ? `⚑ CHECKPOINT · ${cpWhere(cp)} · ${fmt(cp.score)} PTS` : best ? `BEST ${fmt(best.score)}` : 'NOT PLAYED YET';
+      return `<button class="mode-card game ${g.id}" data-act="game" data-game="${g.id}"${(g.id === pickedGame || (!i && !GAMES.some((x) => x.id === pickedGame))) ? ' data-autofocus' : ''}>`
+        + `<span class="mode-ic">${GAME_IC[g.id]}</span><span class="mode-name">${g.name}</span><span class="mode-desc">${g.desc}</span>`
+        + `<span class="mode-tags">${g.tags.map((t) => `<i>${t}</i>`).join('')}</span><span class="mode-foot${cp ? ' on' : ''}">${foot}</span></button>`;
+    }).join('');
+  }
+  function renderVariant() {
+    const g = gameOf(pickedGame);
+    const cp = Checkpoint.get(pickedGame);
+    $('variantTitle').textContent = g.name;
+    $('modeArcadeFoot').textContent = cp ? `⚑ CHECKPOINT · ${cpWhere(cp)} · ${fmt(cp.score)} PTS` : 'NO CHECKPOINT YET';
     $('modeArcadeFoot').classList.toggle('on', !!cp);
+    $('modeHcDesc').textContent = `No saves: die and you start ${pickedGame === 'bossrush' ? 'again from the first boss' : pickedGame === 'raid' ? 'again from the first raid' : 'again from wave 1'}. Always on HARD, and you can never gain extra hearts.`;
   }
   function renderArcade() {
-    const cp = Checkpoint.get();
+    const g = gameOf(pickedGame);
+    $('classicTitle').textContent = `${g.name} · CLASSIC`;
+    const cp = Checkpoint.get(pickedGame);
     const cont = $('cpCard').querySelector('[data-act=continue]');
     const ng = $('btnNewGame');
     $('cpCard').classList.toggle('hidden', !cp);
@@ -674,25 +733,29 @@ const UI = (() => {
     $('cpDiff').textContent = DIFF_LABEL[cp.diff] || 'NORMAL';
     $('cpDiff').className = 'diff-tag ' + (cp.diff || 'normal');
     const weapon = cp.weapon >= 5 ? `MAX · ${Math.round((cp.power || 1) * 100)}%` : `LV ${cp.weapon}`;
-    const cells = [['WAVE', cp.wave], ['SCORE', fmt(cp.score)], ['HEARTS', `${cp.maxHp} ♥`], ['WEAPON', weapon]];
+    const where = cpWhere(cp).split(' ');
+    const cells = [[where[0], where[1]], ['SCORE', fmt(cp.score)], ['HEARTS', `${cp.maxHp} ♥`], ['WEAPON', weapon]];
+    if (cp.game === 'raid' && cp.village) cells.push(['VILLAGE', `${cp.village}/20`]);
     if (cp.totem) cells.push(['TOTEM', '✓']);
     $('cpStats').innerHTML = cells.map(([l, v]) => `<span><small>${l}</small><b>${v}</b></span>`).join('');
-    const list = Game.bossList();
+    const list = Game.bossList(pickedGame).filter((b) => !b.secret);
     const next = list.length ? list[cp.bossLevel % list.length] : null;
     const mark = list.length ? Math.floor(cp.bossLevel / list.length) + 1 : 1;
+    const when = pickedGame === 'bossrush' ? 'next up' : pickedGame === 'raid' ? `leads raid ${Math.ceil(cp.wave / 5)}` : `at wave ${Math.ceil(cp.wave / 5) * 5}`;
     $('cpNext').innerHTML = next
-      ? `Next boss: <b>${next.name}${mark > 1 ? ' MK ' + (ROMAN[mark - 1] || mark) : ''}</b> at wave ${Math.ceil(cp.wave / 5) * 5}`
+      ? `${pickedGame === 'raid' ? 'Next captain' : 'Next boss'}: <b>${next.name}${mark > 1 ? ' MK ' + (ROMAN[mark - 1] || mark) : ''}</b> ${when}`
       : '';
   }
   function renderHardcore() {
+    $('hcTitle').textContent = `${gameOf(pickedGame).name} · HARDCORE`;
     $('tierList').innerHTML = HARDCORE_TIERS.map((t, i) => {
-      const best = Scores.bestFor(t.id);
+      const best = Scores.bestFor(modeTag(pickedGame, t.id));
       const hearts = '<img src="heart.png" alt="">'.repeat(t.hearts);
       return `<button class="tier ${t.id}" data-act="tier" data-tier="${t.id}"${i === 0 ? ' data-autofocus' : ''}>`
         + `<span class="tier-top"><span class="tier-name">${t.name}</span><span class="tier-hearts" aria-label="${t.hearts} hearts">${hearts}</span></span>`
         + `<span class="tier-desc">${t.desc}</span>`
         + `<span class="tier-foot"><span class="tier-bonus">SCORE ×${t.bonus}</span>`
-        + `<span class="tier-best">${best ? `BEST ${fmt(best.score)} · WAVE ${best.wave}` : 'NOT PLAYED YET'}</span>`
+        + `<span class="tier-best">${best ? `BEST ${fmt(best.score)} · ${cpWhere({ game: pickedGame, wave: best.wave })}` : 'NOT PLAYED YET'}</span>`
         + `${Trophies.has(t.id) ? '<span class="tier-won">★ BOSS BEATEN</span>' : ''}</span></button>`;
     }).join('');
   }
@@ -805,8 +868,8 @@ const UI = (() => {
     const slow = create ? 0 : setTimeout(() => { if (btn.disabled) formStatus(f, 'CONNECTING TO THE HOST…', 'busy'); }, 3500);
     Sfx.unlock();
     try {
-      if (create) await Net.create({ room, name, password, skin: Settings.get('skin') });
-      else await Net.join({ room, name, password, skin: Settings.get('skin') });
+      if (create) await Net.create({ room, name, password, skin: Settings.get('skin'), pet: Settings.get('pet') });
+      else await Net.join({ room, name, password, skin: Settings.get('skin'), pet: Settings.get('pet') });
       Settings.set('mpName', name);
       Settings.set('mpRoom', room);
       f.elements.password.value = '';
@@ -848,7 +911,8 @@ const UI = (() => {
       const kick = host && !r.host ? `<button class="kick" data-act="kick" data-pid="${r.pid}" aria-label="Remove ${esc(r.name)}">✕</button>` : '';
       // only newly arrived players slide in (the list refreshes every couple of seconds with pings)
       const fresh = !lobbySeen.has(`${r.pid}:${r.name}`);
-      return `<li class="lp${fresh ? ' new' : ''}" style="--pc:${Net.color(r.pid)}"><img src="${esc(skinImg(r.skin))}" alt=""><b>${esc(r.name)}</b>${hostTag}${meTag}${ping}${kick}</li>`;
+      const pet = r.pet && r.pet !== 'none' && petById(r.pet).img ? `<img class="lp-pet" src="${esc(petById(r.pet).img)}" alt="" title="${esc(petById(r.pet).name)}">` : '';
+      return `<li class="lp${fresh ? ' new' : ''}" style="--pc:${Net.color(r.pid)}"><img src="${esc(skinImg(r.skin))}" alt="">${pet}<b>${esc(r.name)}</b>${hostTag}${meTag}${ping}${kick}</li>`;
     }).join('');
     lobbySeen.clear();
     for (const r of roster) lobbySeen.add(`${r.pid}:${r.name}`);
@@ -870,12 +934,14 @@ const UI = (() => {
     hearts.disabled = !host;
     hearts.style.setProperty('--v', ((s.hearts - 1) / 9) * 100 + '%');
     $('lobbyHeartsOut').textContent = `${s.hearts} ♥`;
-    box.querySelectorAll('.lob-arcade').forEach((el) => el.classList.toggle('hidden', s.mode !== 'arcade'));
+    box.querySelectorAll('.lob-classic').forEach((el) => el.classList.toggle('hidden', s.mode !== 'classic'));
     box.querySelectorAll('.lob-hardcore').forEach((el) => el.classList.toggle('hidden', s.mode !== 'hardcore'));
     const tier = TIER[s.tier];
-    $('lobbyRules').innerHTML = s.mode === 'hardcore'
+    const game = gameOf(s.game);
+    const gameLine = { arcade: 'Waves of mobs, a boss every 5 waves.', bossrush: 'Only bosses, all 11 back to back. Everyone starts with a level 3 gun.', raid: 'Defend the village from the illagers. Raiders that get through burn it — if it falls, the run is over.' }[game.id];
+    $('lobbyRules').innerHTML = `<b>${game.name}:</b> ${gameLine} ` + (s.mode === 'hardcore'
       ? `<b>${tier.name}:</b> ${esc(tier.desc)} Always on HARD. <b>No respawns</b>: a downed player spectates until the run ends.`
-      : `Downed players <b>rejoin at the start of the next wave</b>. It's game over when the whole team is down. Mob and boss health grow with the team.`;
+      : `Downed players <b>rejoin at the start of the next ${game.id === 'bossrush' ? 'boss' : 'wave'}</b>. It's game over when the whole team is down. Mob and boss health grow with the team.`);
     $('btnLobbyStart').classList.toggle('hidden', !host);
     $('lobbyWait').classList.toggle('hidden', host);
     $('lobbyWait').textContent = Net.phase === 'game' ? 'THE HOST IS STILL IN THE LAST RUN…' : 'WAITING FOR THE HOST TO START…';
@@ -934,8 +1000,12 @@ const UI = (() => {
       stack = [];
       show('netMsg');
     });
-    // skins changed in the lobby are shown to the whole room
-    Settings.onChange((key, v) => { if (key === 'skin' && Net.role && Net.phase === 'lobby') Net.setSkin(v); });
+    // skins and pets changed in the lobby are shown to the whole room
+    Settings.onChange((key, v) => {
+      if (!Net.role || Net.phase !== 'lobby') return;
+      if (key === 'skin') Net.setSkin(v);
+      if (key === 'pet') Net.setPet(v);
+    });
   }
   function launchNet(role, m) {
     Sfx.unlock();
@@ -1023,8 +1093,65 @@ const UI = (() => {
     syncMenuSkin();
   }
 
+  // ================================================================ pets
+  const petById = (id) => (typeof PETS !== 'undefined' && (PETS.find((p) => p.id === id) || PETS[0])) || { id: 'none', name: 'NO PET', img: '', glow: '#7f8aa8', role: 'SOLO', desc: '', abil: [] };
+  const PAW = '<svg viewBox="0 0 24 24" fill="currentColor"><ellipse cx="5.5" cy="10" rx="2.1" ry="2.7"/><ellipse cx="9.8" cy="5.6" rx="2.1" ry="2.7"/><ellipse cx="14.8" cy="5.6" rx="2.1" ry="2.7"/><ellipse cx="19" cy="10" rx="2.1" ry="2.7"/><path d="M12.3 11.2c3 0 6.3 4.6 6.3 7.3 0 1.9-1.5 2.7-3.2 2.7-1.4 0-2.2-.8-3.1-.8s-1.7.8-3.1.8C7.5 21.2 6 20.4 6 18.5c0-2.7 3.3-7.3 6.3-7.3z"/></svg>';
+  const PET_SOUND = { wolf: 'bark', cat: 'meow', bee: 'buzz', allay: 'chime', frog: 'croak', axolotl: 'bubble' };
+  const petPic = (d) => (d.img ? `<img src="${d.img}" alt="">` : `<span class="pet-none">${PAW}</span>`);
+  function paintPetStage(d) {
+    const prev = $('petPreview');
+    prev.innerHTML = petPic(d);
+    retrigger(prev, 'pop');
+    $('scrPets').style.setProperty('--skin', d.glow);
+    $('petName').innerHTML = `${esc(d.name)}<i class="pet-role">${esc(d.role)}</i>`;
+    $('petDesc').textContent = d.desc;
+    $('petAbils').innerHTML = d.abil.length
+      ? d.abil.map((a, i) => `<div class="abil" style="--ac:${d.glow}"><span class="abil-ic pet-num">${i + 1}</span><div><b>${esc(a.name)}</b><p>${esc(a.desc)}</p><small>${i ? 'SECOND' : 'FIRST'} ABILITY · AUTOMATIC</small></div></div>`).join('')
+      : '<p class="pet-solo">No pet, no help: just you and the void.</p>';
+  }
+  function syncMenuPet() {
+    const d = petById(Settings.get('pet'));
+    $('menuPet').innerHTML = d.img ? `<img src="${d.img}" alt="">` : PAW;
+  }
+  function renderPets() {
+    const cur = Settings.get('pet');
+    $('petCount').textContent = String(PETS.length - 1);
+    $('petGrid').innerHTML = PETS.map((d) => `<button class="skin pet${d.id === cur ? ' on' : ''}" data-pet="${d.id}" style="--skin:${d.glow}" aria-pressed="${d.id === cur}">${petPic(d)}<b>${d.name}</b><i class="pet-role">${d.role}</i><span>${d.id === cur ? 'EQUIPPED' : 'EQUIP'}</span></button>`).join('');
+    paintPetStage(petById(cur));
+  }
+  function equipPet(id) {
+    if (id === Settings.get('pet')) { Sfx.play('click'); return; }
+    Settings.set('pet', id);
+    $('petGrid').querySelectorAll('.pet').forEach((b) => {
+      const on = b.dataset.pet === id;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', String(on));
+      b.querySelector('span:last-child').textContent = on ? 'EQUIPPED' : 'EQUIP';
+    });
+    paintPetStage(petById(id));
+    syncMenuPet();
+    Sfx.play(PET_SOUND[id] || 'click');
+    toast(id === 'none' ? 'NO PET' : `${petById(id).name} IS FOLLOWING YOU`);
+  }
+  function initPets() {
+    $('petGrid').addEventListener('click', (e) => {
+      const b = e.target.closest('.pet');
+      if (b) equipPet(b.dataset.pet);
+    });
+    $('petGrid').addEventListener('focusin', (e) => {
+      const b = e.target.closest('.pet');
+      if (b) paintPetStage(petById(b.dataset.pet));
+    });
+    $('petGrid').addEventListener('focusout', (e) => {
+      if (!$('petGrid').contains(e.relatedTarget)) paintPetStage(petById(Settings.get('pet')));
+    });
+    syncMenuPet();
+  }
+
   function renderBosses() {
-    $('bossCards').innerHTML = Game.bossList().map((b) => `<div class="card"><img src="${b.img}.png" alt=""><div><b>${b.name}<span class="tag lvl">WAVE ${b.wave}</span></b><p>${b.desc}</p></div></div>`).join('');
+    $('bossCards').innerHTML = Game.bossList().map((b) => (b.secret && !b.found
+      ? `<div class="card secret"><img src="${b.img}.png" alt=""><div><b>???<span class="tag lvl">SECRET</span></b><p>Some say a figure with white eyes watches from the edge of the void after wave 15... and that it does not like being shot at.</p></div></div>`
+      : `<div class="card"><img src="${b.img}.png" alt=""><div><b>${b.name}<span class="tag lvl">${b.secret ? 'SECRET' : `WAVE ${b.wave}`}</span></b><p>${b.desc}</p></div></div>`)).join('');
   }
 
   // ================================================================ settings
@@ -1205,6 +1332,7 @@ const UI = (() => {
     initSettings();
     initTabs();
     initSkins();
+    initPets();
     initLobby();
     syncMute();
     refreshMenu();
